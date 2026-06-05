@@ -1,0 +1,79 @@
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron";
+import { pathToFileURL } from "node:url";
+import { ipcChannels } from "../shared/ipc";
+import type {
+  AuthCredentials,
+  AuthSession,
+  ExportRequest,
+  ExportVideosRequest,
+  RechargeReceipt,
+  RechargeRequest,
+  GenerateProgress,
+  LocalAccountSummary,
+  ProductShotRequest,
+  ProviderId,
+  SaveEditedImageRequest,
+  SaveEditedImageResponse,
+  VideoGenerationRequest,
+  VideoProgress,
+  WalletSummary,
+  WalletTransaction
+} from "../shared/types";
+
+contextBridge.exposeInMainWorld("productStudio", {
+  getPaths: () => ipcRenderer.invoke(ipcChannels.appGetPaths),
+  getSession: (): Promise<AuthSession | null> => ipcRenderer.invoke(ipcChannels.authGetSession),
+  getRememberedSession: (): Promise<AuthSession | null> => ipcRenderer.invoke(ipcChannels.authGetRemembered),
+  resumeRememberedSession: (): Promise<AuthSession | null> => ipcRenderer.invoke(ipcChannels.authResumeRemembered),
+  listAccounts: (): Promise<LocalAccountSummary[]> => ipcRenderer.invoke(ipcChannels.authListAccounts),
+  deleteAccount: (userId: string): Promise<void> => ipcRenderer.invoke(ipcChannels.authDeleteAccount, userId),
+  signUp: (credentials: AuthCredentials): Promise<AuthSession> =>
+    ipcRenderer.invoke(ipcChannels.authSignUp, credentials),
+  login: (credentials: AuthCredentials): Promise<AuthSession> =>
+    ipcRenderer.invoke(ipcChannels.authLogin, credentials),
+  logout: (): Promise<void> => ipcRenderer.invoke(ipcChannels.authLogout),
+  getWallet: (): Promise<WalletSummary> => ipcRenderer.invoke(ipcChannels.billingGetWallet),
+  recharge: (request: RechargeRequest): Promise<RechargeReceipt> =>
+    ipcRenderer.invoke(ipcChannels.billingRecharge, request),
+  listWalletTransactions: (limit?: number): Promise<WalletTransaction[]> =>
+    ipcRenderer.invoke(ipcChannels.billingListTransactions, limit),
+  getKeyStatus: () => ipcRenderer.invoke(ipcChannels.keysGetStatus),
+  saveKey: (providerId: ProviderId, apiKey: string) => ipcRenderer.invoke(ipcChannels.keysSave, providerId, apiKey),
+  deleteKey: (providerId: ProviderId) => ipcRenderer.invoke(ipcChannels.keysDelete, providerId),
+  validateKey: (providerId: ProviderId) => ipcRenderer.invoke(ipcChannels.keysValidate, providerId),
+  selectImage: () => ipcRenderer.invoke(ipcChannels.imageSelect),
+  selectImages: () => ipcRenderer.invoke(ipcChannels.imageSelectMany),
+  importImage: (filePath: string) => ipcRenderer.invoke(ipcChannels.imageImport, filePath),
+  getFilePath: (file: File) => webUtils.getPathForFile(file),
+  generateProductShots: (request: ProductShotRequest) => ipcRenderer.invoke(ipcChannels.productGenerate, request),
+  cancelProductJob: (jobId: string) => ipcRenderer.invoke(ipcChannels.productCancel, jobId),
+  generateProductVideo: (request: VideoGenerationRequest) => ipcRenderer.invoke(ipcChannels.videoGenerate, request),
+  cancelVideoJob: (jobId: string) => ipcRenderer.invoke(ipcChannels.videoCancel, jobId),
+  listHistory: () => ipcRenderer.invoke(ipcChannels.historyList),
+  listTrashedHistory: () => ipcRenderer.invoke(ipcChannels.historyListTrash),
+  trashHistoryJob: (jobId: string): Promise<void> => ipcRenderer.invoke(ipcChannels.historyTrash, jobId),
+  restoreHistoryJob: (jobId: string): Promise<void> => ipcRenderer.invoke(ipcChannels.historyRestore, jobId),
+  deleteHistoryJobForever: (jobId: string): Promise<void> =>
+    ipcRenderer.invoke(ipcChannels.historyDeleteForever, jobId),
+  selectExportFolder: (): Promise<string> => ipcRenderer.invoke(ipcChannels.exportSelectDir),
+  exportImages: (request: ExportRequest) => ipcRenderer.invoke(ipcChannels.exportImages, request),
+  exportVideos: (request: ExportVideosRequest) => ipcRenderer.invoke(ipcChannels.exportVideos, request),
+  saveEditedImage: (request: SaveEditedImageRequest): Promise<SaveEditedImageResponse> =>
+    ipcRenderer.invoke(ipcChannels.exportSaveEditedImage, request),
+  toFileUrl: (filePath: string) => pathToFileURL(filePath).toString(),
+  onOpenSettings: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on(ipcChannels.menuOpenSettings, listener);
+    return () => ipcRenderer.off(ipcChannels.menuOpenSettings, listener);
+  },
+  onGenerationProgress: (callback: (progress: GenerateProgress) => void) => {
+    const listener = (_event: IpcRendererEvent, progress: GenerateProgress) => callback(progress);
+    ipcRenderer.on(ipcChannels.productProgress, listener);
+    return () => ipcRenderer.off(ipcChannels.productProgress, listener);
+  },
+  onVideoProgress: (callback: (progress: VideoProgress) => void) => {
+    const listener = (_event: IpcRendererEvent, progress: VideoProgress) => callback(progress);
+    ipcRenderer.on(ipcChannels.videoProgress, listener);
+    return () => ipcRenderer.off(ipcChannels.videoProgress, listener);
+  }
+});

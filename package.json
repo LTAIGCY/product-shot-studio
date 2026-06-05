@@ -1,0 +1,85 @@
+{
+  "name": "product-shot-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Windows desktop MVP for generating commercial product showcase images with mainstream image models.",
+  "author": "Product Shot Studio",
+  "main": "dist/main/main.js",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:renderer\" \"npm:dev:main\" \"npm:dev:electron\"",
+    "dev:renderer": "vite --host 127.0.0.1",
+    "dev:main": "tsc -p tsconfig.main.json --watch --preserveWatchOutput",
+    "dev:electron": "wait-on http://127.0.0.1:5173 dist/main/main.js && cross-env ELECTRON_RENDERER_URL=http://127.0.0.1:5173 electron .",
+    "start": "electron .",
+    "build": "npm run build:main && npm run build:renderer",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:renderer": "vite build",
+    "package:win": "npm run build && electron-builder --win dir --x64 && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-win-zip.ps1",
+    "ensure:electron": "node scripts/ensure-electron.cjs",
+    "live:smoke": "npm run build && node scripts/live-smoke.cjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.main.json",
+    "test": "vitest run --config vitest.config.ts",
+    "test:watch": "vitest --config vitest.config.ts",
+    "lint": "npm run typecheck"
+  },
+  "dependencies": {
+    "sql.js": "^1.12.0"
+  },
+  "optionalDependencies": {
+    "keytar": "^7.9.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.6.0",
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/sql.js": "^1.4.11",
+    "concurrently": "^9.2.0",
+    "cross-env": "^7.0.3",
+    "electron": "^32.3.3",
+    "electron-builder": "^26.8.1",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.19",
+    "vitest": "^2.1.9"
+  },
+  "build": {
+    "appId": "com.productshotstudio.app",
+    "productName": "Product Shot Studio",
+    "electronVersion": "32.3.3",
+    "electronDist": "node_modules/electron/dist",
+    "directories": {
+      "output": "outputs/package"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json",
+      "node_modules/sql.js/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "node_modules/sql.js/dist/sql-wasm.wasm",
+        "to": "sql-wasm.wasm"
+      }
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "dir",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "asar": true
+  }
+}

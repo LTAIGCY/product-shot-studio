@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.vite/
+coverage/
+outputs/
+work/
+*.log
+*.sqlite
+.env
+.env.*
+secrets.enc.json
