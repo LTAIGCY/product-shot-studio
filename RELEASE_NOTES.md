@@ -27,6 +27,7 @@ Windows x64 MVP package for generating commercial product showcase images from o
 - Added local remembered-account resume: closing while logged in allows one-click entry next launch; explicit logout clears the remembered session.
 - Added click-to-preview for uploaded source images and generated images.
 - Added an image preview/editor with zoom, brightness, contrast, saturation, save original, and save edited image actions.
+- Fixed the enlarged image preview so mixed-aspect images fit by default, then support mouse-wheel zoom, click-drag panning, and double-click view reset.
 - Changed generated result tiles to show full images with mixed aspect ratios instead of cropping them to squares.
 - Added quicker export buttons beside the active result status and each generated result card.
 - Added visible export feedback: export buttons show loading, the workflow ribbon moves into export state, and the top progress bar fills to completion after export succeeds.

@@ -1,4 +1,5 @@
 ﻿import { useEffect, useMemo, useState } from "react";
+import { useRef, type PointerEvent, type WheelEvent } from "react";
 import {
   AlertCircle,
   Check,
@@ -208,6 +209,8 @@ const uiText = {
   resetEdit: "\u91cd\u7f6e\u7f16\u8f91",
   saveImage: "\u4fdd\u5b58\u56fe\u7247",
   saveEdited: "\u4fdd\u5b58\u7f16\u8f91\u540e\u56fe\u7247",
+  resetView: "\u9002\u5e94\u7a97\u53e3",
+  previewInteractionHint: "\u6eda\u8f6e\u7f29\u653e\uff0c\u6309\u4f4f\u56fe\u7247\u62d6\u52a8\uff0c\u53cc\u51fb\u6062\u590d\u5b8c\u6574\u89c6\u56fe",
   brightness: "\u4eae\u5ea6",
   contrast: "\u5bf9\u6bd4\u5ea6",
   saturation: "\u9971\u548c\u5ea6",
@@ -2162,7 +2165,17 @@ function ImagePreviewDialog(props: {
   onClose: () => void;
   onSaved: (path: string) => void;
 }) {
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    panX: number;
+    panY: number;
+  } | null>(null);
   const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
   const [editing, setEditing] = useState(false);
   const [brightness, setBrightness] = useState(100);
   const [contrast, setContrast] = useState(100);
@@ -2170,6 +2183,92 @@ function ImagePreviewDialog(props: {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const imageFilter = `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%)`;
+
+  useEffect(() => {
+    resetView();
+    setEditing(false);
+    resetEdit();
+    setMessage("");
+  }, [props.image.src]);
+
+  function clampPreviewZoom(value: number): number {
+    return Math.min(6, Math.max(0.35, value));
+  }
+
+  function resetView() {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  }
+
+  function zoomFromCenter(delta: number) {
+    setZoom((currentZoom) => {
+      const nextZoom = clampPreviewZoom(currentZoom + delta);
+      if (nextZoom <= 1) {
+        setPan({ x: 0, y: 0 });
+      }
+      return nextZoom;
+    });
+  }
+
+  function handleWheel(event: WheelEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const rect = stageRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const cursorX = event.clientX - rect.left - rect.width / 2;
+    const cursorY = event.clientY - rect.top - rect.height / 2;
+    const factor = event.deltaY > 0 ? 0.88 : 1.12;
+
+    setZoom((currentZoom) => {
+      const nextZoom = clampPreviewZoom(currentZoom * factor);
+      setPan((currentPan) => {
+        if (nextZoom <= 1) {
+          return { x: 0, y: 0 };
+        }
+        const imagePointX = (cursorX - currentPan.x) / currentZoom;
+        const imagePointY = (cursorY - currentPan.y) / currentZoom;
+        return {
+          x: cursorX - imagePointX * nextZoom,
+          y: cursorY - imagePointY * nextZoom
+        };
+      });
+      return nextZoom;
+    });
+  }
+
+  function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      panX: pan.x,
+      panY: pan.y
+    };
+    setIsPanning(true);
+  }
+
+  function handlePointerMove(event: PointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    setPan({
+      x: drag.panX + event.clientX - drag.startX,
+      y: drag.panY + event.clientY - drag.startY
+    });
+  }
+
+  function stopPanning(event: PointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    dragRef.current = null;
+    setIsPanning(false);
+  }
 
   function resetEdit() {
     setBrightness(100);
@@ -2230,12 +2329,15 @@ function ImagePreviewDialog(props: {
             <p>{props.image.subtitle ?? uiText.previewImage}</p>
           </div>
           <div className="preview-toolbar">
-            <button className="icon-button" onClick={() => setZoom((value) => Math.max(0.5, value - 0.15))} title={uiText.zoomOut}>
+            <button className="icon-button" onClick={() => zoomFromCenter(-0.2)} title={uiText.zoomOut}>
               <ZoomOut size={16} />
             </button>
             <span>{Math.round(zoom * 100)}%</span>
-            <button className="icon-button" onClick={() => setZoom((value) => Math.min(3, value + 0.15))} title={uiText.zoomIn}>
+            <button className="icon-button" onClick={() => zoomFromCenter(0.2)} title={uiText.zoomIn}>
               <ZoomIn size={16} />
+            </button>
+            <button className="icon-button" onClick={resetView} title={uiText.resetView}>
+              <RotateCcw size={16} />
             </button>
             <button className={`secondary-button ${editing ? "active" : ""}`} onClick={() => setEditing((value) => !value)}>
               <Edit3 size={16} />
@@ -2265,14 +2367,29 @@ function ImagePreviewDialog(props: {
             </button>
           </section>
         ) : null}
-        <div className="preview-stage">
+        <div
+          ref={stageRef}
+          className={`preview-stage ${isPanning ? "panning" : ""}`}
+          onWheel={handleWheel}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={stopPanning}
+          onPointerCancel={stopPanning}
+          onDoubleClick={resetView}
+          role="presentation"
+        >
           <img
             src={props.image.src}
             alt={props.image.title}
-            style={{ filter: imageFilter, transform: `scale(${zoom})` }}
+            draggable={false}
+            onDragStart={(event) => event.preventDefault()}
+            style={{
+              filter: imageFilter,
+              transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`
+            }}
           />
         </div>
-        <footer>{message || uiText.previewImage}</footer>
+        <footer>{message || uiText.previewInteractionHint}</footer>
       </div>
     </div>
   );
