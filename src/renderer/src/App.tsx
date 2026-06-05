@@ -15,6 +15,7 @@ import {
   KeyRound,
   Loader2,
   LogOut,
+  Megaphone,
   Play,
   QrCode,
   RotateCcw,
@@ -33,6 +34,7 @@ import {
 } from "lucide-react";
 import { productShotPresets } from "@shared/presets";
 import { providerConfigs, providerOrder } from "@shared/providers";
+import { updateAnnouncements } from "@shared/updateAnnouncements";
 import loginStudioIllustrationUrl from "../assets/login-studio-illustration.png";
 import tutorialApiConfigUrl from "../assets/tutorial-api-config.png";
 import tutorialImportUrl from "../assets/tutorial-import.png";
@@ -72,7 +74,7 @@ const aspectRatios: AspectRatio[] = ["1:1", "4:5", "16:9", "3:2"];
 const videoAspectRatios: AspectRatio[] = ["16:9", "9:16", "1:1", "4:5"];
 const videoResolutions: VideoResolution[] = ["720p", "1080p"];
 const exportFormats: ExportFormat[] = ["png", "jpg", "webp"];
-type AppPage = "image" | "video" | "personal" | "settings";
+type AppPage = "image" | "video" | "personal" | "updates" | "settings";
 type PersonalCenterTab = "overview" | "history" | "recharge" | "transactions" | "trash";
 type StatusTone = "normal" | "warn";
 type ExportFeedback = "idle" | "running" | "done";
@@ -90,6 +92,12 @@ const uiText = {
   videoPage: "\u89c6\u9891\u751f\u6210",
   historyPage: "\u5386\u53f2\u4f5c\u54c1",
   billingPage: "\u5145\u503c\u79ef\u5206",
+  updatesPage: "\u66f4\u65b0\u516c\u544a",
+  updatesSubtitle: "\u67e5\u770b\u6bcf\u6b21\u53d1\u5e03\u7684\u4e2d\u6587\u66f4\u65b0\u5185\u5bb9\u548c\u5177\u4f53\u65f6\u95f4\u3002",
+  latestUpdate: "\u6700\u65b0\u66f4\u65b0",
+  updateTime: "\u66f4\u65b0\u65f6\u95f4",
+  updateVersion: "\u7248\u672c",
+  updateDetails: "\u66f4\u65b0\u8be6\u60c5",
   settingsPage: "\u8bbe\u7f6e",
   model: "\u6a21\u578b",
   apiKeys: "API \u5bc6\u94a5",
@@ -1470,6 +1478,8 @@ export function App() {
               void refreshStatus();
             }}
           />
+        ) : activePage === "updates" ? (
+          <UpdateAnnouncementsPage />
         ) : (
           <SettingsDialog
             defaultExportDir={defaultExportDir}
@@ -1515,6 +1525,7 @@ function PageNavigation(props: {
     { id: "image", label: uiText.imagePage, icon: <ImagePlus size={17} /> },
     { id: "video", label: uiText.videoPage, icon: <Video size={17} /> },
     { id: "personal", label: uiText.personalCenter, icon: <User size={17} /> },
+    { id: "updates", label: uiText.updatesPage, icon: <Megaphone size={17} /> },
     { id: "settings", label: uiText.settingsPage, icon: <Settings size={17} /> }
   ];
   return (
@@ -1545,6 +1556,72 @@ function PageNavigation(props: {
         onLogout={props.onLogout}
       />
     </aside>
+  );
+}
+
+function UpdateAnnouncementsPage() {
+  return (
+    <main className="page-workspace updates-page">
+      <header className="page-header">
+        <div>
+          <h2>{uiText.updatesPage}</h2>
+          <p>{uiText.updatesSubtitle}</p>
+        </div>
+        <div className="update-header-badge">
+          <Megaphone size={18} />
+          <span>{updateAnnouncements.length} 条公告</span>
+        </div>
+      </header>
+
+      <div className="updates-layout">
+        <section className="updates-list">
+          {updateAnnouncements.map((announcement, index) => (
+            <article
+              key={announcement.id}
+              className={`update-card ${index === 0 ? "latest" : ""}`}
+            >
+              <header>
+                <div>
+                  <span className="update-kicker">
+                    {index === 0 ? uiText.latestUpdate : uiText.updatesPage}
+                  </span>
+                  <h3>{announcement.title}</h3>
+                </div>
+                <div className="update-meta">
+                  <span>{uiText.updateVersion} {announcement.version}</span>
+                  <span>{uiText.updateTime} {announcement.publishedAt}</span>
+                </div>
+              </header>
+              <p>{announcement.summary}</p>
+              <div className="update-section-grid">
+                {announcement.sections.map((section) => (
+                  <section key={`${announcement.id}-${section.heading}`} className="update-section">
+                    <h4>{section.heading}</h4>
+                    <ul>
+                      {section.items.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+              </div>
+            </article>
+          ))}
+        </section>
+
+        <aside className="updates-guideline">
+          <span>{uiText.updateDetails}</span>
+          <h3>以后每次更新都记录这几件事</h3>
+          <ol>
+            <li>更新时间：使用明确的年月日和时分秒。</li>
+            <li>版本标题：让用户一眼知道这次更新解决了什么。</li>
+            <li>功能新增：写清楚入口、用法和对用户的价值。</li>
+            <li>问题修复：写清楚原问题、修复方式和影响范围。</li>
+            <li>验证结果：记录测试、构建或打包是否通过。</li>
+          </ol>
+        </aside>
+      </div>
+    </main>
   );
 }
 

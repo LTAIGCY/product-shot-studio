@@ -5,6 +5,7 @@ Windows x64 MVP package for generating commercial product showcase images from o
 ## User Experience
 
 - Default desktop interface is localized for Chinese users.
+- Added an in-app update announcements page with Chinese release notes, exact update timestamps, detailed change groups, and a small maintenance checklist for future releases.
 - Added local-only account sign-up/login with salted password hashing.
 - Added local wallet balance, usage tracking, estimated generation cost, and generation blocking when balance is insufficient.
 - Added detailed failure reason display for failed provider calls, including preset, error code, message, and retryability.
@@ -91,7 +92,7 @@ Windows x64 MVP package for generating commercial product showcase images from o
 ## Verified
 
 - TypeScript typecheck passed.
-- Unit, integration, prompt, billing, cancellation, output-count, error-normalization, and provider request-mapping tests passed: 6 files, 19 tests.
+- Unit, integration, prompt, billing, update-announcement, cancellation, output-count, error-normalization, and provider request-mapping tests passed: 7 files, 21 tests.
 - Renderer and main-process production build passed.
 - Latest packaged `Product Shot Studio.exe` startup smoke test passed after clearing a stale development Electron single-instance lock.
 - Live provider smoke command is available through `npm.cmd run live:smoke -- aliyun|volcano|tencent`.
