@@ -105,9 +105,51 @@ npm.cmd run package:win
 打包产物位置：
 
 - `outputs/package/win-unpacked/Product Shot Studio.exe`
-- `outputs/Product Shot Studio-0.2.2-win-x64.zip`
+- `outputs/Product Shot Studio-0.2.3-win-x64.zip`
 
 软件包会包含后端运行资源，位置为 `resources/backend/`，包括 `server/dist`、Prisma 文件和后端 `node_modules`。
+
+## 常见开发问题
+
+### 后端页面打不开
+
+如果运行 `npm.cmd run dev:all` 后，终端先显示：
+
+```text
+Product Shot Studio 本地账本服务已启动：http://127.0.0.1:4317
+监测后台：http://127.0.0.1:4317/admin
+```
+
+但随后又出现 `dev:electron exited with code 1`，后端页面也打不开，通常是桌面端开发进程启动失败后，`concurrently -k` 把后端进程一起关闭了。
+
+处理方法：
+
+```powershell
+npm.cmd install
+npm.cmd run dev:all
+```
+
+如果只想先打开后端监测后台，可以单独启动后端：
+
+```powershell
+npm.cmd run server:dev
+```
+
+然后浏览器打开：
+
+```text
+http://127.0.0.1:4317/admin
+```
+
+如果终端里出现 `wait-on` 相关错误，请确认已经拉取最新代码并重新执行过 `npm.cmd install`。
+
+如果 Electron 窗口启动时报缺少 `chrome_100_percent.pak`、`chrome_200_percent.pak` 或其它运行资源，可以执行：
+
+```powershell
+npm.cmd run ensure:electron
+```
+
+该脚本会检查 Electron 关键文件是否完整，缺失时会重新下载并解压运行时。
 
 ## 测试
 

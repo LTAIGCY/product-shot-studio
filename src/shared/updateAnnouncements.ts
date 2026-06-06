@@ -14,6 +14,40 @@ export interface UpdateAnnouncement {
 
 export const updateAnnouncements: UpdateAnnouncement[] = [
   {
+    id: "2026-06-06-dev-startup-fix",
+    version: "0.2.3",
+    title: "开发启动与后台访问修复",
+    publishedAt: "2026-06-06 14:45:00",
+    summary:
+      "修复开发环境运行 npm run dev:all 时 Electron 进程因为缺少 wait-on 命令而退出、并连带关闭本地账本后端的问题。现在项目依赖中明确包含 wait-on，重新安装依赖后即可稳定启动桌面端和监测后台。",
+    sections: [
+      {
+        heading: "启动修复",
+        items: [
+          "根项目新增 wait-on 开发依赖，dev:electron 脚本可以正常等待 Vite 页面和 dist/main/main.js 准备完成。",
+          "修复后 npm run dev:all 不会因为 wait-on 命令缺失而立即退出，也不会连带杀掉已经启动的本地账本后端。",
+          "如果只需要查看后端监测后台，可以单独运行 npm run server:dev，再打开 http://127.0.0.1:4317/admin。"
+        ]
+      },
+      {
+        heading: "协作说明",
+        items: [
+          "朋友拉取最新代码后需要执行 npm install，确保 node_modules 中生成 node_modules/.bin/wait-on.cmd。",
+          "如果终端里出现 wait-on 相关乱码错误，通常就是依赖没有安装完整，重新执行 npm install 即可。",
+          "README 已补充本地账本后台打不开时的排查步骤，方便以后开发和部署时快速定位问题。"
+        ]
+      },
+      {
+        heading: "Electron 修复",
+        items: [
+          "增强 ensure-electron 脚本，不再只检查 electron.exe，而是校验 chrome_100_percent.pak、chrome_200_percent.pak、resources.pak、icudtl.dat 和中文语言包等关键运行资源。",
+          "Windows 下恢复 Electron 时优先使用 PowerShell Expand-Archive 解压，避免解压异常后只留下半套运行时文件。",
+          "如果 Electron 窗口启动时报缺少 chrome_100_percent.pak 或类似资源，可以运行 npm run ensure:electron 自动修复。"
+        ]
+      }
+    ]
+  },
+  {
     id: "2026-06-06-live-admin-monitor",
     version: "0.2.2",
     title: "监测后台实时刷新",

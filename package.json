@@ -1,6 +1,6 @@
 {
   "name": "product-shot-studio",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "description": "Windows desktop MVP for generating commercial product showcase images with mainstream image models.",
   "author": "Product Shot Studio",
@@ -35,11 +35,11 @@
     "keytar": "^7.9.0"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.6.0",
     "@types/node": "^22.10.2",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@types/sql.js": "^1.4.11",
+    "@vitejs/plugin-react": "^4.6.0",
     "concurrently": "^9.2.0",
     "cross-env": "^7.0.3",
     "electron": "^32.3.3",
@@ -49,7 +49,8 @@
     "react-dom": "^18.3.1",
     "typescript": "^5.7.2",
     "vite": "^5.4.19",
-    "vitest": "^2.1.9"
+    "vitest": "^2.1.9",
+    "wait-on": "^7.2.0"
   },
   "build": {
     "appId": "com.productshotstudio.app",
