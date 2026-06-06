@@ -1,9 +1,11 @@
 import { createApp } from "./app";
 import { createPrismaClient, ensureDefaultDatabaseUrl } from "./db";
+import { initializeDatabaseSchema } from "./schema";
 
 async function main(): Promise<void> {
   ensureDefaultDatabaseUrl();
   const prisma = createPrismaClient();
+  await initializeDatabaseSchema(prisma);
   const app = createApp({ prisma });
   const host = process.env.HOST || "127.0.0.1";
   const port = Number(process.env.PORT || 4317);

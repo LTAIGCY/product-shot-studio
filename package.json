@@ -1,6 +1,6 @@
 {
   "name": "product-shot-studio",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Windows desktop MVP for generating commercial product showcase images with mainstream image models.",
   "author": "Product Shot Studio",
@@ -15,9 +15,9 @@
     "server:dev": "npm --prefix server run dev",
     "server:build": "npm --prefix server run build",
     "server:test": "npm --prefix server test",
-    "server:db:push": "npm --prefix server run db:push",
+    "server:db:init": "npm --prefix server run db:init",
     "start": "electron .",
-    "build": "npm run build:main && npm run build:renderer",
+    "build": "npm run server:build && npm run build:main && npm run build:renderer",
     "build:main": "tsc -p tsconfig.main.json",
     "build:renderer": "vite build",
     "package:win": "npm run build && electron-builder --win dir --x64 && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-win-zip.ps1",
@@ -68,6 +68,22 @@
       {
         "from": "node_modules/sql.js/dist/sql-wasm.wasm",
         "to": "sql-wasm.wasm"
+      },
+      {
+        "from": "server/dist",
+        "to": "backend/dist"
+      },
+      {
+        "from": "server/node_modules",
+        "to": "backend/node_modules"
+      },
+      {
+        "from": "server/package.json",
+        "to": "backend/package.json"
+      },
+      {
+        "from": "server/prisma",
+        "to": "backend/prisma"
       }
     ],
     "win": {

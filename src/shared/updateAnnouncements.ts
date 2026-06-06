@@ -14,6 +14,39 @@ export interface UpdateAnnouncement {
 
 export const updateAnnouncements: UpdateAnnouncement[] = [
   {
+    id: "2026-06-06-auto-local-ledger",
+    version: "0.2.1",
+    title: "桌面端自动启动本地账本",
+    publishedAt: "2026-06-06 10:58:00",
+    summary: "增强桌面端与本地账本后端的集成：打包版启动时会自动带起本地后端，第一次运行自动创建账本数据库，并把后端资源一起放进 Windows 软件包。",
+    sections: [
+      {
+        heading: "自动启动",
+        items: [
+          "桌面端启动时会先检查 http://127.0.0.1:4317/health，如果本地账本服务已经运行，会直接复用。",
+          "如果没有检测到后端，软件会从打包资源中的 backend/dist/index.js 启动本地后端子进程。",
+          "如果开发者设置 PRODUCT_STUDIO_BACKEND_URL 或 PRODUCT_SHOT_BACKEND_URL，桌面端会连接指定服务器，不再启动本地后端。"
+        ]
+      },
+      {
+        heading: "自动建库",
+        items: [
+          "后端启动时会自动创建 SQLite 表结构，首次运行不再要求用户手动执行 db:init。",
+          "桌面端自动启动的数据库会保存在应用用户数据目录的 ledger/product-shot-studio.db 中。",
+          "本地后端 token secret 会自动生成并保存在用户数据目录，避免每次重启后登录凭证失效。"
+        ]
+      },
+      {
+        heading: "打包支持",
+        items: [
+          "Windows 打包流程现在会先构建 server，再构建 Electron 主进程和 React 渲染进程。",
+          "打包资源新增 backend/dist、backend/node_modules、backend/prisma 和 backend/package.json，保证双击软件后账本服务可用。",
+          "README 已更新本地开发、打包运行和服务器迁移说明。"
+        ]
+      }
+    ]
+  },
+  {
     id: "2026-06-06-local-ledger-backend",
     version: "0.2.0",
     title: "本地账本后端与监测后台",

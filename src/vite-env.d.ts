@@ -28,7 +28,13 @@ import type {
 declare global {
   interface Window {
     productStudio: {
-      getPaths(): Promise<{ userDataPath: string; outputsPath: string; defaultExportPath: string }>;
+      getPaths(): Promise<{
+        userDataPath: string;
+        outputsPath: string;
+        defaultExportPath: string;
+        backendUrl?: string;
+        adminUrl?: string;
+      }>;
       getSession(): Promise<AuthSession | null>;
       getRememberedSession(): Promise<AuthSession | null>;
       resumeRememberedSession(): Promise<AuthSession | null>;

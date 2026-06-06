@@ -20,6 +20,7 @@ import { VideoGenerationService } from "./services/videoGenerationService";
 import { AccountService } from "./services/accountService";
 import { BillingService } from "./services/billingService";
 import { BackendClient } from "./services/backendClient";
+import { LocalBackendService } from "./services/localBackendService";
 
 let mainWindow: BrowserWindow | null = null;
 let secretStore: SecretStore;
@@ -31,6 +32,7 @@ let videoGenerationService: VideoGenerationService;
 let accountService: AccountService;
 let billingService: BillingService;
 let backendClient: BackendClient;
+let localBackendService: LocalBackendService;
 const adapters = createProviderAdapters();
 
 async function bootstrap(): Promise<void> {
@@ -38,7 +40,9 @@ async function bootstrap(): Promise<void> {
   secretStore = new SecretStore(userDataPath);
   database = new AppDatabase(userDataPath);
   await database.init();
-  backendClient = new BackendClient(userDataPath);
+  localBackendService = new LocalBackendService(userDataPath);
+  await localBackendService.start();
+  backendClient = new BackendClient(userDataPath, localBackendService.getBaseUrl());
   accountService = new AccountService(backendClient);
   billingService = new BillingService(backendClient);
   imageService = new ImageService(userDataPath);
@@ -89,7 +93,9 @@ function registerIpc(): void {
   ipcMain.handle(ipcChannels.appGetPaths, () => ({
     userDataPath: app.getPath("userData"),
     outputsPath: path.join(app.getPath("userData"), "generated-images"),
-    defaultExportPath: path.join(app.getPath("documents"), "Product Shot Studio Exports")
+    defaultExportPath: path.join(app.getPath("documents"), "Product Shot Studio Exports"),
+    backendUrl: localBackendService.getBaseUrl(),
+    adminUrl: localBackendService.getAdminUrl()
   }));
 
   ipcMain.handle(ipcChannels.authGetSession, () => accountService.getSession());
@@ -258,6 +264,10 @@ function getErrorMessage(error: unknown): string {
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
+});
+
+app.on("before-quit", () => {
+  localBackendService?.stop();
 });
 
 app.on("activate", () => {

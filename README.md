@@ -39,7 +39,7 @@ npm.cmd install
 
 ## Run Local Ledger Backend
 
-The desktop app now reads account, wallet, recharge and usage data from the backend. Start it first:
+During development, the desktop app reads account, wallet, recharge and usage data from the backend. You can start it manually:
 
 ```powershell
 npm.cmd --prefix server run prisma:generate
@@ -53,6 +53,8 @@ Open the monitoring dashboard:
 - Default development password: `admin123456`
 
 For real use, create `server/.env` from `server/.env.example` and change `ADMIN_PASSWORD` plus `TOKEN_SECRET`.
+
+The packaged Windows app starts the bundled local backend automatically. The backend database is created under the app user data folder, so end users do not need to run `db:init`.
 
 ## Run Desktop App
 
@@ -68,7 +70,7 @@ Or run backend and desktop together:
 npm.cmd run dev:all
 ```
 
-Packaged/local start after build:
+After `npm.cmd run build`, `npm.cmd start` can also auto-start the compiled local backend if `server/dist/index.js` exists:
 
 ```powershell
 npm.cmd run build
@@ -88,6 +90,8 @@ $env:PRODUCT_STUDIO_BACKEND_URL="http://your-server:4317"
 npm.cmd run dev
 ```
 
+When `PRODUCT_STUDIO_BACKEND_URL` or `PRODUCT_SHOT_BACKEND_URL` is set, the desktop app connects to that remote backend and does not start the local backend process.
+
 ## Windows Package
 
 Build a double-clickable Windows app folder and zip package:
@@ -99,7 +103,9 @@ npm.cmd run package:win
 The packaged app is written to:
 
 - `outputs/package/win-unpacked/Product Shot Studio.exe`
-- `outputs/Product Shot Studio-0.1.0-win-x64.zip`
+- `outputs/Product Shot Studio-0.2.1-win-x64.zip`
+
+The package includes the backend runtime under `resources/backend/`, including `server/dist`, Prisma files and backend node modules.
 
 ## Test
 
