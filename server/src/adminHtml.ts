@@ -9,44 +9,83 @@ export function renderAdminHtml(): string {
     :root {
       color-scheme: light;
       --bg: #eef4f1;
-      --panel: rgba(255, 255, 255, 0.92);
+      --panel: rgba(255, 255, 255, 0.94);
       --ink: #10201d;
       --muted: #6b7b78;
       --line: #dbe6e1;
       --brand: #107f70;
+      --brand-soft: #e8f6f2;
       --danger: #a63b2e;
+      --warning: #9a6a19;
       font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; background: radial-gradient(circle at top left, #d9ebe6, transparent 36rem), var(--bg); color: var(--ink); }
-    .shell { max-width: 1320px; margin: 0 auto; padding: 28px; }
+    body {
+      margin: 0;
+      background: radial-gradient(circle at top left, #d9ebe6, transparent 36rem), var(--bg);
+      color: var(--ink);
+    }
+    .shell { max-width: 1360px; margin: 0 auto; padding: 28px; }
     header { display: flex; justify-content: space-between; gap: 20px; align-items: center; margin-bottom: 20px; }
     h1 { margin: 0; font-size: 28px; }
     h2 { margin: 0 0 14px; font-size: 18px; }
     p { color: var(--muted); margin: 6px 0 0; }
     button, input { font: inherit; }
-    button { border: 0; border-radius: 12px; background: var(--brand); color: white; padding: 10px 16px; font-weight: 700; cursor: pointer; }
-    button.secondary { background: #eef7f4; color: var(--brand); border: 1px solid rgba(16, 127, 112, 0.22); }
+    button {
+      border: 0;
+      border-radius: 12px;
+      background: var(--brand);
+      color: white;
+      padding: 10px 16px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button.secondary {
+      background: #eef7f4;
+      color: var(--brand);
+      border: 1px solid rgba(16, 127, 112, 0.22);
+    }
     input { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; min-width: 220px; }
-    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 20px; box-shadow: 0 20px 60px rgba(30, 55, 50, 0.08); padding: 18px; }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(30, 55, 50, 0.08);
+      padding: 18px;
+    }
     .login { display: flex; gap: 10px; align-items: center; }
-    .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
+    .grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin-bottom: 14px; }
     .metric strong { display: block; font-size: 28px; margin-top: 6px; }
-    .layout { display: grid; grid-template-columns: 1.1fr 1fr; gap: 14px; }
+    .layout { display: grid; grid-template-columns: 1.12fr 1fr; gap: 14px; }
     .layout-wide { display: grid; grid-template-columns: 1fr; gap: 14px; margin-top: 14px; }
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
     th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-    th { color: var(--muted); font-weight: 700; }
+    th { color: var(--muted); font-weight: 700; white-space: nowrap; }
     td { word-break: break-word; }
     .status-failed { color: var(--danger); font-weight: 700; }
     .admin-meta { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; color: var(--muted); }
-    .live-pill { display: inline-flex; align-items: center; gap: 8px; border: 1px solid rgba(16, 127, 112, 0.2); border-radius: 999px; padding: 8px 12px; color: var(--brand); background: #e8f6f2; font-weight: 700; }
+    .live-pill, .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      padding: 7px 10px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .live-pill { border: 1px solid rgba(16, 127, 112, 0.2); color: var(--brand); background: var(--brand-soft); }
     .live-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--brand); box-shadow: 0 0 0 6px rgba(16, 127, 112, 0.12); }
     .live-dot.offline { background: var(--danger); box-shadow: 0 0 0 6px rgba(166, 59, 46, 0.12); }
+    .presence-online { background: #e7f7ef; color: #0b7a4b; }
+    .presence-offline { background: #f3f0ec; color: #756b62; }
+    .account-active { background: #eef7f4; color: var(--brand); }
+    .account-disabled { background: #fff2ed; color: var(--danger); }
     .message { color: var(--danger); min-height: 22px; margin-top: 10px; }
+    .hint { color: var(--muted); font-size: 13px; margin: -6px 0 14px; }
     .hidden { display: none; }
-    @media (max-width: 980px) {
-      .grid, .layout { grid-template-columns: 1fr; }
+    @media (max-width: 1100px) {
+      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .layout { grid-template-columns: 1fr; }
       header { align-items: flex-start; flex-direction: column; }
       .login { width: 100%; flex-wrap: wrap; }
     }
@@ -57,7 +96,7 @@ export function renderAdminHtml(): string {
     <header>
       <div>
         <h1>Product Shot Studio 监测后台</h1>
-        <p>实时查看用户、积分、充值、扣费、生成任务和异常审计事件。</p>
+        <p>实时查看用户、在线状态、积分、充值、扣费、生成任务和异常审计事件。</p>
       </div>
       <div class="login panel">
         <input id="password" type="password" placeholder="管理员密码" />
@@ -73,6 +112,7 @@ export function renderAdminHtml(): string {
       </div>
       <div class="grid">
         <div class="panel metric"><span>用户数</span><strong id="totalUsers">0</strong></div>
+        <div class="panel metric"><span>在线用户</span><strong id="onlineUsers">0</strong></div>
         <div class="panel metric"><span>总余额</span><strong id="totalBalance">0</strong></div>
         <div class="panel metric"><span>总充值</span><strong id="totalRecharged">0</strong></div>
         <div class="panel metric"><span>总消耗</span><strong id="totalUsed">0</strong></div>
@@ -80,7 +120,13 @@ export function renderAdminHtml(): string {
       <div class="layout">
         <div class="panel">
           <h2>用户列表</h2>
-          <table><thead><tr><th>账号</th><th>余额</th><th>冻结</th><th>充值 / 消耗</th><th>状态</th></tr></thead><tbody id="users"></tbody></table>
+          <p class="hint">账号状态表示账号是否被启用；在线状态由桌面端心跳判断，超过约 90 秒没有心跳会显示离线。</p>
+          <table>
+            <thead>
+              <tr><th>账号</th><th>在线状态</th><th>最后在线</th><th>余额</th><th>冻结</th><th>充值 / 消耗</th><th>账号状态</th></tr>
+            </thead>
+            <tbody id="users"></tbody>
+          </table>
         </div>
         <div class="panel">
           <h2>失败任务</h2>
@@ -151,10 +197,11 @@ export function renderAdminHtml(): string {
         $("refresh").classList.remove("hidden");
         $("lastUpdated").textContent = "最后刷新：" + new Date().toLocaleString("zh-CN");
         $("totalUsers").textContent = overview.totalUsers;
+        $("onlineUsers").textContent = overview.onlineUsers || 0;
         $("totalBalance").textContent = fmt(overview.totalBalancePoints);
         $("totalRecharged").textContent = fmt(overview.totalRechargedPoints);
         $("totalUsed").textContent = fmt(overview.totalUsedPoints);
-        $("users").innerHTML = users.items.map((user) => "<tr><td>" + text(user.username) + "</td><td>" + fmt(user.wallet.balancePoints) + "</td><td>" + fmt(user.wallet.reservedPoints) + "</td><td>" + fmt(user.wallet.totalRechargedPoints) + " / " + fmt(user.wallet.totalUsedPoints) + "</td><td>" + text(user.status) + "</td></tr>").join("");
+        $("users").innerHTML = users.items.map(renderUser).join("");
         $("failedJobs").innerHTML = jobs.items.map((job) => "<tr><td>" + text(job.username || "-") + "</td><td>" + text(job.modelId || "-") + "</td><td class='status-failed'>" + text(job.errorMessage || "-") + "</td><td>" + date(job.createdAt) + "</td></tr>").join("");
         $("recharges").innerHTML = recharges.items.map((tx) => "<tr><td>" + text(tx.username || "-") + "</td><td>" + fmt(tx.amountPoints) + "</td><td>" + text(tx.modelId || "-") + "</td><td>" + date(tx.createdAt) + "</td></tr>").join("");
         $("usage").innerHTML = overview.recentUsage.map((tx) => "<tr><td>" + text(tx.username || "-") + "</td><td>" + fmt(Math.abs(tx.amountPoints)) + "</td><td>" + text(tx.modelId || "-") + "</td><td>" + date(tx.createdAt) + "</td></tr>").join("");
@@ -163,6 +210,20 @@ export function renderAdminHtml(): string {
         setLiveStatus(false);
         $("message").textContent = error.message;
       }
+    }
+
+    function renderUser(user) {
+      return "<tr><td>" + text(user.username) + "</td><td>" + presenceBadge(user) + "</td><td>" + date(user.lastSeenAt) + "</td><td>" + fmt(user.wallet.balancePoints) + "</td><td>" + fmt(user.wallet.reservedPoints) + "</td><td>" + fmt(user.wallet.totalRechargedPoints) + " / " + fmt(user.wallet.totalUsedPoints) + "</td><td>" + accountBadge(user.status) + "</td></tr>";
+    }
+
+    function presenceBadge(user) {
+      const online = user.presenceStatus === "online";
+      return "<span class='badge " + (online ? "presence-online" : "presence-offline") + "'>" + text(user.presenceLabel || (online ? "在线" : "离线")) + "</span>";
+    }
+
+    function accountBadge(status) {
+      const active = status === "active";
+      return "<span class='badge " + (active ? "account-active" : "account-disabled") + "'>" + (active ? "已启用" : text(status || "已停用")) + "</span>";
     }
 
     function startLiveMonitor() {
@@ -179,6 +240,7 @@ export function renderAdminHtml(): string {
       const labels = {
         "user.register": "用户注册",
         "auth.login": "用户登录",
+        "auth.logout": "用户退出",
         "auth.login_failed": "登录失败",
         "wallet.recharge_simulated": "模拟充值",
         "usage.reserve": "生成预扣",

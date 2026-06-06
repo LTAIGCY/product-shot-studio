@@ -28,6 +28,8 @@ interface UserContext {
   createdAt: string;
 }
 
+const ONLINE_WINDOW_MS = 90_000;
+
 export function createApp(options: CreateAppOptions): FastifyInstance {
   const prisma = options.prisma;
   const tokenSecret = options.tokenSecret ?? process.env.TOKEN_SECRET ?? "dev-product-shot-studio-token-secret";
@@ -55,11 +57,14 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
     const username = normalizeUsername(body.username ?? "");
     assertPassword(body.password ?? "");
     const passwordRecord = createPasswordRecord(body.password ?? "");
+    const now = new Date();
     try {
       const user = await prisma.user.create({
         data: {
           username,
           ...passwordRecord,
+          lastLoginAt: now,
+          lastSeenAt: now,
           wallet: {
             create: {}
           },
@@ -100,6 +105,8 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
       where: { id: user.id },
       data: {
         lastLoginAt: new Date(),
+        lastSeenAt: new Date(),
+        lastLogoutAt: null,
         auditEvents: {
           create: {
             action: "auth.login",
@@ -128,6 +135,30 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
         createdAt: user.createdAt
       }
     };
+  });
+
+  app.post("/api/presence/heartbeat", async (request) => {
+    const user = await requireUser(prisma, request, tokenSecret);
+    const updatedUser = await prisma.user.update({
+      where: { id: user.userId },
+      data: {
+        lastSeenAt: new Date(),
+        lastLogoutAt: null
+      }
+    });
+    return { ok: true, presence: mapPresence(updatedUser) };
+  });
+
+  app.post("/api/auth/logout", async (request) => {
+    const user = await requireUser(prisma, request, tokenSecret);
+    await prisma.user.update({
+      where: { id: user.userId },
+      data: {
+        lastLogoutAt: new Date()
+      }
+    });
+    await writeAudit(prisma, { userId: user.userId, action: "auth.logout", ip: request.ip });
+    return { ok: true };
   });
 
   app.get("/api/wallet", async (request) => {
@@ -391,8 +422,15 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
 
   app.get("/admin/overview", async (request) => {
     requireAdmin(request, tokenSecret);
-    const [totalUsers, walletSums, recentRecharge, recentUsage, failedJobs] = await Promise.all([
+    const [totalUsers, usersForPresence, walletSums, recentRecharge, recentUsage, failedJobs] = await Promise.all([
       prisma.user.count(),
+      prisma.user.findMany({
+        select: {
+          status: true,
+          lastSeenAt: true,
+          lastLogoutAt: true
+        }
+      }),
       prisma.wallet.aggregate({
         _sum: {
           balancePoints: true,
@@ -420,8 +458,10 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
         take: 10
       })
     ]);
+    const onlineUsers = usersForPresence.filter((user) => mapPresence(user).presenceStatus === "online").length;
     return {
       totalUsers,
+      onlineUsers,
       totalBalancePoints: walletSums._sum.balancePoints ?? 0,
       totalReservedPoints: walletSums._sum.reservedPoints ?? 0,
       totalRechargedPoints: walletSums._sum.totalRechargedPoints ?? 0,
@@ -445,6 +485,7 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
         id: user.id,
         username: user.username,
         status: user.status,
+        ...mapPresence(user),
         createdAt: user.createdAt.toISOString(),
         lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
         wallet: mapWallet(user.wallet ?? emptyWallet(user.id))
@@ -463,6 +504,7 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
       id: user.id,
       username: user.username,
       status: user.status,
+      ...mapPresence(user),
       createdAt: user.createdAt.toISOString(),
       lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
       wallet: mapWallet(user.wallet ?? emptyWallet(user.id))
@@ -610,6 +652,30 @@ function toSession(user: User): { userId: string; username: string; createdAt: s
     userId: user.id,
     username: user.username,
     createdAt: user.createdAt.toISOString()
+  };
+}
+
+function mapPresence(user: {
+  status?: string;
+  lastSeenAt: Date | null;
+  lastLogoutAt: Date | null;
+}): {
+  presenceStatus: "online" | "offline";
+  presenceLabel: string;
+  lastSeenAt: string | null;
+  lastLogoutAt: string | null;
+} {
+  const isActive = user.status === undefined || user.status === "active";
+  const lastSeenAt = user.lastSeenAt;
+  const lastLogoutAt = user.lastLogoutAt;
+  const loggedOutAfterSeen = Boolean(lastSeenAt && lastLogoutAt && lastLogoutAt.getTime() >= lastSeenAt.getTime());
+  const recentlySeen = Boolean(lastSeenAt && Date.now() - lastSeenAt.getTime() <= ONLINE_WINDOW_MS);
+  const online = isActive && recentlySeen && !loggedOutAfterSeen;
+  return {
+    presenceStatus: online ? "online" : "offline",
+    presenceLabel: online ? "在线" : "离线",
+    lastSeenAt: lastSeenAt?.toISOString() ?? null,
+    lastLogoutAt: lastLogoutAt?.toISOString() ?? null
   };
 }
 

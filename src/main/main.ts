@@ -33,6 +33,7 @@ let accountService: AccountService;
 let billingService: BillingService;
 let backendClient: BackendClient;
 let localBackendService: LocalBackendService;
+let presenceHeartbeatTimer: NodeJS.Timeout | null = null;
 const adapters = createProviderAdapters();
 
 async function bootstrap(): Promise<void> {
@@ -100,12 +101,27 @@ function registerIpc(): void {
 
   ipcMain.handle(ipcChannels.authGetSession, () => accountService.getSession());
   ipcMain.handle(ipcChannels.authGetRemembered, () => accountService.getRememberedSession());
-  ipcMain.handle(ipcChannels.authResumeRemembered, () => accountService.resumeRememberedSession());
+  ipcMain.handle(ipcChannels.authResumeRemembered, async () => {
+    const session = await accountService.resumeRememberedSession();
+    if (session) startPresenceHeartbeat();
+    return session;
+  });
   ipcMain.handle(ipcChannels.authListAccounts, () => accountService.listAccounts());
   ipcMain.handle(ipcChannels.authDeleteAccount, (_event, userId: string) => accountService.deleteAccount(userId));
-  ipcMain.handle(ipcChannels.authSignUp, (_event, credentials) => accountService.signUp(credentials));
-  ipcMain.handle(ipcChannels.authLogin, (_event, credentials) => accountService.login(credentials));
-  ipcMain.handle(ipcChannels.authLogout, () => accountService.logout());
+  ipcMain.handle(ipcChannels.authSignUp, async (_event, credentials) => {
+    const session = await accountService.signUp(credentials);
+    startPresenceHeartbeat();
+    return session;
+  });
+  ipcMain.handle(ipcChannels.authLogin, async (_event, credentials) => {
+    const session = await accountService.login(credentials);
+    startPresenceHeartbeat();
+    return session;
+  });
+  ipcMain.handle(ipcChannels.authLogout, async () => {
+    await accountService.logout();
+    stopPresenceHeartbeat();
+  });
   ipcMain.handle(ipcChannels.billingGetWallet, () => billingService.getWalletSummary());
   ipcMain.handle(ipcChannels.billingRecharge, (_event, request) => billingService.recharge(request));
   ipcMain.handle(ipcChannels.billingListTransactions, (_event, limit?: number) =>
@@ -258,6 +274,20 @@ function registerIpc(): void {
   );
 }
 
+function startPresenceHeartbeat(): void {
+  stopPresenceHeartbeat();
+  void backendClient.heartbeat().catch(() => undefined);
+  presenceHeartbeatTimer = setInterval(() => {
+    void backendClient.heartbeat().catch(() => undefined);
+  }, 30_000);
+}
+
+function stopPresenceHeartbeat(): void {
+  if (!presenceHeartbeatTimer) return;
+  clearInterval(presenceHeartbeatTimer);
+  presenceHeartbeatTimer = null;
+}
+
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -267,6 +297,8 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  stopPresenceHeartbeat();
+  void backendClient?.markOffline().catch(() => undefined);
   localBackendService?.stop();
 });
 

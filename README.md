@@ -1,172 +1,140 @@
 # Product Shot Studio
 
-Windows 桌面 MVP：把普通产品照片生成适合电商和营销展示的商拍图片套装。当前模型供应商以国内图像模型为主，包括阿里百炼、火山方舟豆包 Seedream 和腾讯混元。
+Product Shot Studio 是一个 Windows 桌面端 AI 商拍图工作流软件。当前版本支持图片生成、视频生成、个人中心、积分账本、历史记录、导出、更新公告，以及本地优先的后端监测后台。
 
-## 功能
+## 当前结构
 
-- Electron + React + TypeScript 桌面应用。
-- 用户自带 API Key，优先使用 keytar，失败时使用 Electron safeStorage 本机加密。
-- 使用 sql.js 保存本地图片、视频和历史记录。
-- `server/` 提供本地优先账本后端，技术栈为 Fastify + Prisma + SQLite。
-- 后端统一管理账号、积分余额、模拟充值、生成预扣、成功扣费、失败释放和审计事件。
-- 浏览器监测后台：`http://127.0.0.1:4317/admin`，支持实时刷新和审计事件查看。
-- 图片输出套装：
-  - 白底主图
-  - 生活场景图
-  - 质感特写图
-  - 营销横图
-  - 商品海报
+- 桌面端：Electron + React + TypeScript。
+- 本地图片/任务库：sql.js，保存原图、生成图、视频和历史记录。
+- 后端账本：`server/`，Fastify + Prisma + SQLite。
+- 监测后台：浏览器打开 `http://127.0.0.1:4317/admin`。
+- API Key：仍保存在用户本机安全存储中，不写入后端数据库。
 
-## 安装
+## 安装依赖
+
+在仓库根目录执行：
 
 ```powershell
 npm.cmd install
 npm.cmd --prefix server install
 ```
 
-如果原生可选依赖安装较慢，可以使用 safeStorage 兜底方案：
-
-```powershell
-npm.cmd install --omit=optional --ignore-scripts
-```
-
-如果 Electron 下载受网络影响，可以先设置镜像：
+如果 Electron 下载慢，可以先设置镜像：
 
 ```powershell
 $env:ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"
 npm.cmd install
 ```
 
-## 启动本地账本后端
+## 推荐打开方式
 
-开发时桌面端会从后端读取账号、钱包、充值和扣费数据。可以手动启动：
+开发时建议把“后端账本服务”和“桌面软件”分成两个终端运行。这样桌面软件关掉后，后端监测后台和数据库服务不会跟着断。
+
+终端 1：启动后端账本服务。
 
 ```powershell
-npm.cmd --prefix server run prisma:generate
-npm.cmd --prefix server run db:init
+cd C:\Users\Gcy\Documents\Codex\2026-06-03\goal\product-shot-studio-dev
 npm.cmd run server:dev
 ```
 
-监测后台：
-
-- 地址：`http://127.0.0.1:4317/admin`
-- 默认开发密码：`admin123456`
-
-正式使用前，建议从 `server/.env.example` 创建 `server/.env`，并修改 `ADMIN_PASSWORD` 和 `TOKEN_SECRET`。
-
-打包版 Windows 软件会自动启动随包附带的本地后端。后端数据库会创建在应用用户数据目录中，普通用户不需要手动执行 `db:init`。
-
-后台登录后会每 5 秒自动刷新一次，并展示注册、登录、充值、预扣、扣费、取消释放和管理员调分等审计事件。
-
-## 启动桌面端
-
-另开一个终端：
-
-```powershell
-npm.cmd run dev
-```
-
-也可以同时启动后端和桌面端：
-
-```powershell
-npm.cmd run dev:all
-```
-
-完成构建后，`npm.cmd start` 也能在 `server/dist/index.js` 存在时自动启动编译后的本地后端：
-
-```powershell
-npm.cmd run build
-npm.cmd start
-```
-
-如果后端未连接，登录、钱包、充值和生成扣费会显示：
-
-```text
-后端服务未连接，请先启动本地账本服务。
-```
-
-未来需要连接服务器后端时，可以设置：
-
-```powershell
-$env:PRODUCT_STUDIO_BACKEND_URL="http://your-server:4317"
-npm.cmd run dev
-```
-
-设置 `PRODUCT_STUDIO_BACKEND_URL` 或 `PRODUCT_SHOT_BACKEND_URL` 后，桌面端会连接指定后端，不再自动启动本地后端进程。
-
-## Windows 打包
-
-构建可双击运行的 Windows 应用目录和 zip 包：
-
-```powershell
-npm.cmd run package:win
-```
-
-打包产物位置：
-
-- `outputs/package/win-unpacked/Product Shot Studio.exe`
-- `outputs/Product Shot Studio-0.2.3-win-x64.zip`
-
-软件包会包含后端运行资源，位置为 `resources/backend/`，包括 `server/dist`、Prisma 文件和后端 `node_modules`。
-
-## 常见开发问题
-
-### 后端页面打不开
-
-如果运行 `npm.cmd run dev:all` 后，终端先显示：
-
-```text
-Product Shot Studio 本地账本服务已启动：http://127.0.0.1:4317
-监测后台：http://127.0.0.1:4317/admin
-```
-
-但随后又出现 `dev:electron exited with code 1`，后端页面也打不开，通常是桌面端开发进程启动失败后，`concurrently -k` 把后端进程一起关闭了。
-
-处理方法：
-
-```powershell
-npm.cmd install
-npm.cmd run dev:all
-```
-
-如果只想先打开后端监测后台，可以单独启动后端：
-
-```powershell
-npm.cmd run server:dev
-```
-
-然后浏览器打开：
+保持这个终端不要关闭。后台地址：
 
 ```text
 http://127.0.0.1:4317/admin
 ```
 
-如果终端里出现 `wait-on` 相关错误，请确认已经拉取最新代码并重新执行过 `npm.cmd install`。
+默认开发后台密码：
 
-如果 Electron 窗口启动时报缺少 `chrome_100_percent.pak`、`chrome_200_percent.pak` 或其它运行资源，可以执行：
+```text
+admin123456
+```
+
+终端 2：启动桌面软件。
+
+```powershell
+cd C:\Users\Gcy\Documents\Codex\2026-06-03\goal\product-shot-studio-dev
+npm.cmd run dev
+```
+
+也可以一条命令同时启动：
+
+```powershell
+npm.cmd run dev:all
+```
+
+现在 `dev:all` 不再因为 Electron 窗口关闭就主动杀掉后端。需要真正停止服务时，在终端按 `Ctrl+C`。
+
+## 打包后打开
+
+生成 Windows 可双击运行的目录和 zip：
+
+```powershell
+npm.cmd run package:win
+```
+
+打开：
+
+```text
+outputs/package/win-unpacked/Product Shot Studio.exe
+```
+
+## 后端与数据库是否已经完成
+
+当前完成的是本地 MVP 版：
+
+- 用户注册、登录、账号唯一性。
+- 密码哈希存储，不存明文密码。
+- 钱包积分、充值记录、扣费记录。
+- 生成任务、失败任务、审计事件。
+- 浏览器监测后台。
+- 用户在线/离线状态。
+
+还没有完成的是正式商业生产版：
+
+- 真实微信支付。
+- 云端正式部署。
+- 公网域名、HTTPS、鉴权加固。
+- 托管数据库和自动备份。
+- 把模型调用迁到后端代理，形成强约束扣费。
+
+## 朋友能不能登录到你的后端
+
+如果你朋友的软件仍然连接 `127.0.0.1:4317`，那它连接的是他自己电脑上的本地后端，你这边看不到。
+
+如果要让你这边后台看到朋友登录，需要满足：
+
+- 你这边后端服务部署在朋友能访问到的地址，例如云服务器、AutoDL 临时服务、同一局域网 IP 或带公网 IP 的机器。
+- 朋友启动桌面软件前设置后端地址：
+
+```powershell
+$env:PRODUCT_STUDIO_BACKEND_URL="http://你的服务器IP或域名:4317"
+npm.cmd run dev
+```
+
+之后朋友注册、登录、充值、扣费、生成失败记录都会进入同一个后端数据库，你这边后台就能看到。
+
+注意：正式对外使用前不要直接裸露本地开发服务，需要加 HTTPS、强管理员密码、防火墙规则和备份策略。
+
+## 后台里的状态是什么意思
+
+- 账号状态：`active` 表示账号已启用，可以登录；它不是在线状态。
+- 在线状态：桌面端登录后每 30 秒向后端发送一次心跳。超过约 90 秒没有心跳，或用户主动退出登录，就显示离线。
+
+## 常用命令
+
+```powershell
+npm.cmd run server:test
+npm.cmd run server:build
+npm.cmd run typecheck
+npm.cmd run build
+```
+
+如果 Electron 运行文件缺失，可以执行：
 
 ```powershell
 npm.cmd run ensure:electron
 ```
 
-该脚本会检查 Electron 关键文件是否完整，缺失时会重新下载并解压运行时。
+## 后期部署建议
 
-## 测试
-
-```powershell
-npm.cmd test
-npm.cmd run typecheck
-npm.cmd run server:test
-npm.cmd run server:build
-```
-
-## 后端部署建议
-
-第一阶段建议保持本地运行后端。后续可以把后端服务部署到 AutoDL 或普通云服务器，但正式账号和支付账本数据建议优先放在托管 PostgreSQL/MySQL，或至少配置自动备份。AutoDL 适合测试或临时服务托管，重要账本数据不要只依赖单实例本地盘。
-
-## 注意
-
-- API Key 只保存在本机安全存储中，不写入 SQLite 或后端数据库。
-- 后端不会明文存储密码，只保存盐值、哈希和哈希算法。
-- 当前充值是 MVP 模拟充值。真实微信支付需要商户凭证、服务端订单创建、支付回调验签和幂等处理。
-- 真实商业计费时，模型调用也应该移到后端代理执行，避免用户修改桌面端绕过扣费。
+第一阶段继续本地开发。后期可以把后端服务部署到 AutoDL 或普通云服务器，但正式账本数据库建议使用托管 PostgreSQL/MySQL，或者至少配置自动备份。AutoDL 更适合测试和临时部署，重要账本数据不要只依赖单实例本地盘。

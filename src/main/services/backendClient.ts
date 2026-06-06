@@ -109,6 +109,7 @@ export class BackendClient {
     this.currentSession = { token: stored.token, session: response.session };
     await this.writeStoredSession(this.currentSession);
     await this.rememberAccount(response.session);
+    await this.heartbeat().catch(() => undefined);
     return response.session;
   }
 
@@ -156,8 +157,17 @@ export class BackendClient {
   }
 
   async logout(): Promise<void> {
+    await this.markOffline().catch(() => undefined);
     this.currentSession = null;
     await fs.rm(this.sessionPath, { force: true });
+  }
+
+  async heartbeat(): Promise<void> {
+    await this.request<{ ok: boolean }>("/api/presence/heartbeat", { method: "POST" });
+  }
+
+  async markOffline(): Promise<void> {
+    await this.request<{ ok: boolean }>("/api/auth/logout", { method: "POST" });
   }
 
   requireSession(): AuthSession {
@@ -234,6 +244,7 @@ export class BackendClient {
     this.currentSession = response;
     await this.writeStoredSession(response);
     await this.rememberAccount(response.session);
+    await this.heartbeat().catch(() => undefined);
   }
 
   private async request<T>(

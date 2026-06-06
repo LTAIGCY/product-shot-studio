@@ -126,6 +126,37 @@ describe("Product Shot Studio ledger backend", () => {
     expect(auditEvents.json().items[0].createdAt).toBeTruthy();
   });
 
+  it("tracks online and offline user presence", async () => {
+    const auth = await registerAndToken("presence-user", "secret123");
+    await api("POST", "/api/presence/heartbeat", auth);
+
+    const adminAuthToken = await adminToken();
+    const onlineUsers = await app.inject({
+      method: "GET",
+      url: "/admin/users",
+      headers: { authorization: `Bearer ${adminAuthToken}` }
+    });
+    expect(onlineUsers.statusCode).toBe(200);
+    expect(onlineUsers.json().items[0].presenceStatus).toBe("online");
+
+    const overview = await app.inject({
+      method: "GET",
+      url: "/admin/overview",
+      headers: { authorization: `Bearer ${adminAuthToken}` }
+    });
+    expect(overview.json().onlineUsers).toBe(1);
+
+    const logout = await api("POST", "/api/auth/logout", auth);
+    expect(logout.statusCode).toBe(200);
+
+    const offlineUsers = await app.inject({
+      method: "GET",
+      url: "/admin/users",
+      headers: { authorization: `Bearer ${adminAuthToken}` }
+    });
+    expect(offlineUsers.json().items[0].presenceStatus).toBe("offline");
+  });
+
   it("rejects reserve when available points are insufficient", async () => {
     const auth = await registerAndToken("dave", "secret123");
     const reserve = await api("POST", "/api/usage/reserve", auth, {

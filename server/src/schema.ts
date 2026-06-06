@@ -10,7 +10,9 @@ const schemaStatements = [
     password_algo TEXT NOT NULL DEFAULT 'scrypt',
     status TEXT NOT NULL DEFAULT 'active',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_login_at DATETIME
+    last_login_at DATETIME,
+    last_seen_at DATETIME,
+    last_logout_at DATETIME
   )`,
   `CREATE TABLE IF NOT EXISTS wallets (
     user_id TEXT PRIMARY KEY NOT NULL,
@@ -87,4 +89,12 @@ export async function initializeDatabaseSchema(prisma: PrismaClient): Promise<vo
   for (const statement of schemaStatements) {
     await prisma.$executeRawUnsafe(statement);
   }
+  await ensureColumn(prisma, "users", "last_seen_at", "DATETIME");
+  await ensureColumn(prisma, "users", "last_logout_at", "DATETIME");
+}
+
+async function ensureColumn(prisma: PrismaClient, tableName: string, columnName: string, columnDefinition: string) {
+  const columns = (await prisma.$queryRawUnsafe(`PRAGMA table_info(${tableName})`)) as Array<{ name: string }>;
+  if (columns.some((column) => column.name === columnName)) return;
+  await prisma.$executeRawUnsafe(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
 }

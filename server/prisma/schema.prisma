@@ -16,6 +16,8 @@ model User {
   status        String              @default("active")
   createdAt     DateTime            @default(now()) @map("created_at")
   lastLoginAt   DateTime?           @map("last_login_at")
+  lastSeenAt    DateTime?           @map("last_seen_at")
+  lastLogoutAt  DateTime?           @map("last_logout_at")
   wallet        Wallet?
   transactions  WalletTransaction[]
   jobs          GenerationJob[]
