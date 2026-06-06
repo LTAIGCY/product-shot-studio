@@ -505,6 +505,17 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
     return { items: items.map(mapTransactionWithUser) };
   });
 
+  app.get("/admin/audit-events", async (request) => {
+    requireAdmin(request, tokenSecret);
+    const limit = clampLimit((request.query as { limit?: string | number }).limit, 100);
+    const items = await prisma.auditEvent.findMany({
+      include: { user: { select: { username: true } } },
+      orderBy: { createdAt: "desc" },
+      take: limit
+    });
+    return { items: items.map(mapAuditEventWithUser) };
+  });
+
   app.post<{ Params: { id: string } }>("/admin/users/:id/adjust-points", async (request) => {
     requireAdmin(request, tokenSecret);
     const body = request.body as AdminAdjustBody;
@@ -690,6 +701,35 @@ function mapJobWithUser(job: Parameters<typeof mapJob>[0] & { user?: { username:
     ...mapJob(job),
     username: job.user?.username
   };
+}
+
+function mapAuditEventWithUser(event: {
+  id: string;
+  userId: string | null;
+  action: string;
+  ip: string | null;
+  metadataJson: string | null;
+  createdAt: Date;
+  user?: { username: string } | null;
+}) {
+  return {
+    id: event.id,
+    userId: event.userId,
+    username: event.user?.username,
+    action: event.action,
+    ip: event.ip,
+    metadata: safeParseMetadata(event.metadataJson),
+    createdAt: event.createdAt.toISOString()
+  };
+}
+
+function safeParseMetadata(value: string | null): unknown {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
 }
 
 function emptyWallet(userId: string): Wallet {

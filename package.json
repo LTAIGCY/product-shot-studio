@@ -1,6 +1,6 @@
 {
   "name": "product-shot-studio",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "description": "Windows desktop MVP for generating commercial product showcase images with mainstream image models.",
   "author": "Product Shot Studio",

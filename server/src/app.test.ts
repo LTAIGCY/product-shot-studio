@@ -104,6 +104,28 @@ describe("Product Shot Studio ledger backend", () => {
     expect(overview.json().totalUsedPoints).toBe(200);
   });
 
+  it("exposes recent audit events to the admin dashboard", async () => {
+    const auth = await registerAndToken("monitor", "secret123");
+    await api("POST", "/api/recharge/simulate", auth, {
+      providerId: "volcano",
+      modelId: "doubao-seedream-5-0-260128",
+      amountPoints: 600
+    });
+
+    const adminAuthToken = await adminToken();
+    const auditEvents = await app.inject({
+      method: "GET",
+      url: "/admin/audit-events?limit=10",
+      headers: { authorization: `Bearer ${adminAuthToken}` }
+    });
+
+    expect(auditEvents.statusCode).toBe(200);
+    const actions = auditEvents.json().items.map((event: { action: string }) => event.action);
+    expect(actions).toContain("user.register");
+    expect(actions).toContain("wallet.recharge_simulated");
+    expect(auditEvents.json().items[0].createdAt).toBeTruthy();
+  });
+
   it("rejects reserve when available points are insufficient", async () => {
     const auth = await registerAndToken("dave", "secret123");
     const reserve = await api("POST", "/api/usage/reserve", auth, {
