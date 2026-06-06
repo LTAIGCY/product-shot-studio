@@ -1,26 +1,91 @@
 # Product Shot Studio
 
-Windows desktop MVP for turning ordinary product photos into commercial e-commerce image sets with OpenAI, Google Gemini, and Stability AI image APIs.
+Windows desktop MVP for turning ordinary product photos into commercial e-commerce image sets with domestic image models such as Alibaba Bailian, Volcano Ark Doubao Seedream, and Tencent Hunyuan.
 
 ## Features
 
-- Electron + React + TypeScript desktop app
-- Bring-your-own API keys with keytar first and Electron safeStorage fallback
-- SQLite-backed task history through sql.js
+- Electron + React + TypeScript desktop app.
+- Bring-your-own API keys with keytar first and Electron safeStorage fallback.
+- Local image/video generation history through sql.js.
+- Local-first ledger backend in `server/` with Fastify + Prisma + SQLite.
+- Account, points balance, simulated recharge, usage reserve/commit/cancel and admin monitoring APIs.
+- Browser admin dashboard at `http://127.0.0.1:4317/admin`.
 - Product-preserving prompt presets:
   - White-background main image
   - Lifestyle scene
   - Texture/detail close-up
   - Marketing banner
-- Provider adapter layer for OpenAI, Google, and Stability
-- Local product image import, preview, generation history, retry, and export
+  - Product poster
 
-## Run
+## Install
 
 ```powershell
 npm.cmd install
+npm.cmd --prefix server install
+```
+
+If native optional dependencies slow down installation, use the safeStorage fallback path:
+
+```powershell
+npm.cmd install --omit=optional --ignore-scripts
+```
+
+If Electron cannot download from GitHub in your network, set a mirror before installing:
+
+```powershell
+$env:ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"
+npm.cmd install
+```
+
+## Run Local Ledger Backend
+
+The desktop app now reads account, wallet, recharge and usage data from the backend. Start it first:
+
+```powershell
+npm.cmd --prefix server run prisma:generate
+npm.cmd --prefix server run db:init
+npm.cmd run server:dev
+```
+
+Open the monitoring dashboard:
+
+- `http://127.0.0.1:4317/admin`
+- Default development password: `admin123456`
+
+For real use, create `server/.env` from `server/.env.example` and change `ADMIN_PASSWORD` plus `TOKEN_SECRET`.
+
+## Run Desktop App
+
+In another terminal:
+
+```powershell
+npm.cmd run dev
+```
+
+Or run backend and desktop together:
+
+```powershell
+npm.cmd run dev:all
+```
+
+Packaged/local start after build:
+
+```powershell
 npm.cmd run build
 npm.cmd start
+```
+
+If the backend is not running, login/wallet/recharge/generation will show:
+
+```text
+后端服务未连接，请先启动本地账本服务。
+```
+
+To point the desktop app to a future server:
+
+```powershell
+$env:PRODUCT_STUDIO_BACKEND_URL="http://your-server:4317"
+npm.cmd run dev
 ```
 
 ## Windows Package
@@ -36,68 +101,22 @@ The packaged app is written to:
 - `outputs/package/win-unpacked/Product Shot Studio.exe`
 - `outputs/Product Shot Studio-0.1.0-win-x64.zip`
 
-If native optional dependencies slow down installation, use the safeStorage fallback path:
-
-```powershell
-npm.cmd install --omit=optional --ignore-scripts
-```
-
-If Electron cannot download from GitHub in your network, set a mirror before installing:
-
-```powershell
-$env:ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"
-npm.cmd install
-```
-
-If `node_modules/electron/dist/electron.exe` is missing after installation:
-
-```powershell
-$env:ELECTRON_MIRROR="https://npmmirror.com/mirrors/electron/"
-npm.cmd run ensure:electron
-```
-
-During development, run the renderer and Electron together:
-
-```powershell
-npm.cmd run dev
-```
-
-In a separate terminal after the TypeScript watcher emits `dist/main/main.js`:
-
-```powershell
-npm.cmd start
-```
-
 ## Test
 
 ```powershell
 npm.cmd test
 npm.cmd run typecheck
+npm.cmd run server:test
+npm.cmd run server:build
 ```
 
-## Live Provider Smoke
+## Backend Deployment Note
 
-After setting a real provider API key, run one live generation through the same adapter used by the desktop app:
-
-```powershell
-$env:OPENAI_API_KEY="..."
-npm.cmd run live:smoke -- openai
-```
-
-Other providers:
-
-```powershell
-$env:GEMINI_API_KEY="..."
-npm.cmd run live:smoke -- google
-
-$env:STABILITY_API_KEY="..."
-npm.cmd run live:smoke -- stability
-```
-
-Outputs are written to `outputs/live-smoke/`.
+First-stage development should keep the backend local. Later, the backend service can run on AutoDL or a normal cloud server, but formal account and payment ledger data should preferably live in a managed PostgreSQL/MySQL database or at least have automatic backups. AutoDL is suitable for testing or temporary service hosting; important ledger data should not rely on a single local disk without backups.
 
 ## Notes
 
-- API keys are stored locally and never written to SQLite.
-- If `keytar` is unavailable on Windows, Electron `safeStorage` encrypts an app-local fallback secret file.
-- Users are responsible for provider fees, image rights, and provider terms.
+- API keys are stored locally and never written to SQLite or the backend database.
+- Backend passwords are never stored in plaintext; the server stores salt, hash, and hash algorithm.
+- Current recharge is simulated for MVP. Real WeChat Pay needs merchant credentials, server-side order creation, payment callback verification, and idempotency controls.
+- For real commercial billing, the future model calls should move behind the backend so users cannot bypass usage deduction by modifying desktop code.

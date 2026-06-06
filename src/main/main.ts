@@ -19,6 +19,7 @@ import { ProductShotService } from "./services/productShotService";
 import { VideoGenerationService } from "./services/videoGenerationService";
 import { AccountService } from "./services/accountService";
 import { BillingService } from "./services/billingService";
+import { BackendClient } from "./services/backendClient";
 
 let mainWindow: BrowserWindow | null = null;
 let secretStore: SecretStore;
@@ -29,6 +30,7 @@ let productShotService: ProductShotService;
 let videoGenerationService: VideoGenerationService;
 let accountService: AccountService;
 let billingService: BillingService;
+let backendClient: BackendClient;
 const adapters = createProviderAdapters();
 
 async function bootstrap(): Promise<void> {
@@ -36,8 +38,9 @@ async function bootstrap(): Promise<void> {
   secretStore = new SecretStore(userDataPath);
   database = new AppDatabase(userDataPath);
   await database.init();
-  accountService = new AccountService(database, userDataPath);
-  billingService = new BillingService(database, accountService);
+  backendClient = new BackendClient(userDataPath);
+  accountService = new AccountService(backendClient);
+  billingService = new BillingService(backendClient);
   imageService = new ImageService(userDataPath);
   exportService = new ExportService();
   productShotService = new ProductShotService(userDataPath, secretStore, database, adapters);
@@ -154,14 +157,19 @@ function registerIpc(): void {
 
   ipcMain.handle(ipcChannels.productGenerate, async (event, request: ProductShotRequest) => {
     const session = accountService.requireSession();
+    let reservationId: string | null = null;
     try {
-      billingService.assertEnoughCreditsForProductRequest(request);
+      const reservation = await billingService.reserveProductRequest(request);
+      reservationId = reservation.reservationId;
       const job = await productShotService.generate(request, (progress) => {
         event.sender.send(ipcChannels.productProgress, progress);
       }, session.userId);
-      await billingService.recordJobUsage(job);
+      await billingService.commitProductUsage(reservation.reservationId, job);
       return job;
     } catch (error) {
+      if (reservationId) {
+        await billingService.cancelUsage(reservationId, getErrorMessage(error)).catch(() => undefined);
+      }
       throw new Error(
         normalizeProviderError({
           providerId: request.providerId,
@@ -178,14 +186,19 @@ function registerIpc(): void {
 
   ipcMain.handle(ipcChannels.videoGenerate, async (event, request: VideoGenerationRequest) => {
     const session = accountService.requireSession();
+    let reservationId: string | null = null;
     try {
-      billingService.assertEnoughCreditsForVideoRequest(request);
+      const reservation = await billingService.reserveVideoRequest(request);
+      reservationId = reservation.reservationId;
       const job = await videoGenerationService.generate(request, (progress) => {
         event.sender.send(ipcChannels.videoProgress, progress);
       }, session.userId);
-      await billingService.recordVideoUsage(job);
+      await billingService.commitVideoUsage(reservation.reservationId, job);
       return job;
     } catch (error) {
+      if (reservationId) {
+        await billingService.cancelUsage(reservationId, getErrorMessage(error)).catch(() => undefined);
+      }
       throw new Error(
         normalizeProviderError({
           providerId: request.providerId,
@@ -237,6 +250,10 @@ function registerIpc(): void {
   ipcMain.handle(ipcChannels.exportSaveEditedImage, (_event, request: SaveEditedImageRequest) =>
     exportService.saveEditedImage(request)
   );
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 app.on("window-all-closed", () => {

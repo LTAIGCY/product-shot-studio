@@ -251,6 +251,7 @@ const uiText = {
   noTransactions: "\u6682\u65e0\u5145\u503c\u660e\u7ec6",
   rechargeIncome: "\u5145\u503c",
   usageExpense: "\u751f\u6210\u6d88\u8017",
+  adjustmentTransaction: "\u79ef\u5206\u8c03\u6574",
   openTutorial: "\u6253\u5f00\u6559\u7a0b",
   tutorialSettingsHint: "\u67e5\u770b\u5bfc\u5165\u3001\u5bc6\u94a5\u914d\u7f6e\u3001\u751f\u6210\u3001\u5bfc\u51fa\u548c\u5e38\u89c1\u95ee\u9898\u3002",
   usedModel: "\u4f7f\u7528\u6a21\u578b",
@@ -261,7 +262,7 @@ const uiText = {
   logout: "\u9000\u51fa",
   username: "\u8d26\u53f7",
   password: "\u5bc6\u7801",
-  localAccountOnly: "\u8d26\u53f7\u548c\u5bc6\u7801\u53ea\u4fdd\u5b58\u5728\u672c\u673a\uff0c\u4e0d\u4f1a\u4e0a\u4f20\u5230\u4e91\u7aef\u3002",
+  localAccountOnly: "\u8d26\u53f7\u548c\u5bc6\u7801\u4fdd\u5b58\u5728\u672c\u5730\u8d26\u672c\u670d\u52a1\uff0c\u5bc6\u7801\u53ea\u4fdd\u5b58\u52a0\u76d0\u54c8\u5e0c\u3002",
   walletBalance: "\u5269\u4f59\u79ef\u5206",
   walletUsed: "\u5df2\u7528",
   insufficientBalance: "\u4f59\u989d\u4e0d\u8db3\uff0c\u8bf7\u5148\u5145\u503c",
@@ -276,7 +277,7 @@ const uiText = {
   tutorial: "\u6559\u7a0b",
   tutorialTitle: "\u4f7f\u7528\u6559\u7a0b\u4e0e\u5e38\u89c1\u95ee\u9898",
   tutorialIntroTitle: "\u8f6f\u4ef6\u4ecb\u7ecd",
-  tutorialIntro: "Product Shot Studio \u662f\u4e00\u4e2a\u672c\u5730 Windows AI \u5546\u62cd\u5de5\u4f5c\u53f0\uff0c\u7528\u666e\u901a\u4ea7\u54c1\u7167\u751f\u6210\u767d\u5e95\u4e3b\u56fe\u3001\u751f\u6d3b\u573a\u666f\u56fe\u3001\u8d28\u611f\u7279\u5199\u56fe\u548c\u8425\u9500\u6a2a\u56fe\u3002\u8d26\u53f7\u3001\u5bc6\u94a5\u3001\u5386\u53f2\u548c\u94b1\u5305\u90fd\u4fdd\u5b58\u5728\u672c\u673a\u3002",
+  tutorialIntro: "Product Shot Studio \u662f\u4e00\u4e2a Windows AI \u5546\u62cd\u5de5\u4f5c\u53f0\uff0c\u7528\u666e\u901a\u4ea7\u54c1\u7167\u751f\u6210\u767d\u5e95\u4e3b\u56fe\u3001\u751f\u6d3b\u573a\u666f\u56fe\u3001\u8d28\u611f\u7279\u5199\u56fe\u548c\u8425\u9500\u6a2a\u56fe\u3002\u5bc6\u94a5\u4ecd\u4fdd\u7559\u5728\u684c\u9762\u7aef\uff0c\u8d26\u53f7\u3001\u79ef\u5206\u548c\u5145\u503c\u6d41\u6c34\u7531\u672c\u5730\u8d26\u672c\u670d\u52a1\u7edf\u4e00\u8bb0\u5f55\u3002",
   tutorialFlow: "\u57fa\u672c\u6d41\u7a0b",
   tutorialFaq: "\u5e38\u89c1\u95ee\u9898",
   tutorialTip: "\u5c0f\u63d0\u793a",
@@ -2691,7 +2692,7 @@ function WalletTransactionList(props: { transactions: WalletTransaction[]; compa
         props.transactions.map((transaction) => (
           <article key={transaction.id} className={transaction.amountCents >= 0 ? "transaction-row income" : "transaction-row expense"}>
             <div>
-              <strong>{transaction.type === "recharge" ? uiText.rechargeIncome : uiText.usageExpense}</strong>
+              <strong>{getTransactionTypeLabel(transaction)}</strong>
               <span>{new Date(transaction.createdAt).toLocaleString()}</span>
             </div>
             <div>
@@ -2716,6 +2717,12 @@ function WalletTransactionList(props: { transactions: WalletTransaction[]; compa
       )}
     </div>
   );
+}
+
+function getTransactionTypeLabel(transaction: WalletTransaction): string {
+  if (transaction.type === "recharge") return uiText.rechargeIncome;
+  if (transaction.type === "usage") return uiText.usageExpense;
+  return uiText.adjustmentTransaction;
 }
 
 function RechargeDialog(props: {

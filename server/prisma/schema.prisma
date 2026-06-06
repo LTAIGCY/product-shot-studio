@@ -1,0 +1,110 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String              @id @default(uuid())
+  username      String              @unique
+  passwordHash  String              @map("password_hash")
+  passwordSalt  String              @map("password_salt")
+  passwordAlgo  String              @default("scrypt") @map("password_algo")
+  status        String              @default("active")
+  createdAt     DateTime            @default(now()) @map("created_at")
+  lastLoginAt   DateTime?           @map("last_login_at")
+  wallet        Wallet?
+  transactions  WalletTransaction[]
+  jobs          GenerationJob[]
+  reservations  UsageReservation[]
+  auditEvents   AuditEvent[]
+
+  @@map("users")
+}
+
+model Wallet {
+  userId                String   @id @map("user_id")
+  balancePoints         Int      @default(0) @map("balance_points")
+  reservedPoints        Int      @default(0) @map("reserved_points")
+  totalRechargedPoints  Int      @default(0) @map("total_recharged_points")
+  totalUsedPoints       Int      @default(0) @map("total_used_points")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("wallets")
+}
+
+model WalletTransaction {
+  id                 String   @id @default(uuid())
+  userId             String   @map("user_id")
+  type               String
+  amountPoints       Int      @map("amount_points")
+  balanceAfterPoints Int      @map("balance_after_points")
+  providerId         String?  @map("provider_id")
+  modelId            String?  @map("model_id")
+  jobId              String?  @map("job_id")
+  note               String
+  createdAt          DateTime @default(now()) @map("created_at")
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([type, createdAt])
+  @@map("wallet_transactions")
+}
+
+model GenerationJob {
+  id              String    @id @default(uuid())
+  userId          String    @map("user_id")
+  reservationId   String?   @map("reservation_id")
+  mediaType       String    @map("media_type")
+  providerId      String?   @map("provider_id")
+  modelId         String?   @map("model_id")
+  status          String
+  estimatedPoints Int       @default(0) @map("estimated_points")
+  chargedPoints   Int       @default(0) @map("charged_points")
+  resultCount     Int       @default(0) @map("result_count")
+  errorMessage    String?   @map("error_message")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  completedAt     DateTime? @map("completed_at")
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@map("generation_jobs")
+}
+
+model UsageReservation {
+  id              String    @id @default(uuid())
+  userId          String    @map("user_id")
+  status          String    @default("reserved")
+  estimatedPoints Int       @map("estimated_points")
+  providerId      String?   @map("provider_id")
+  modelId         String?   @map("model_id")
+  mediaType       String?   @map("media_type")
+  jobId           String?   @map("job_id")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  committedAt     DateTime? @map("committed_at")
+  canceledAt      DateTime? @map("canceled_at")
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@map("usage_reservations")
+}
+
+model AuditEvent {
+  id           String   @id @default(uuid())
+  userId       String?  @map("user_id")
+  action       String
+  ip           String?
+  metadataJson String?  @map("metadata_json")
+  createdAt    DateTime @default(now()) @map("created_at")
+  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_events")
+}

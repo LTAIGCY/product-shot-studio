@@ -1,7 +1,11 @@
-import { randomUUID } from "node:crypto";
-import { estimateRequestCostCents, estimateVideoRequestCostCents, formatCredits } from "../../shared/billing";
+import {
+  estimateRequestCostCents,
+  estimateVideoRequestCostCents,
+  formatCredits
+} from "../../shared/billing";
 import type {
   ProductShotJob,
+  ProductShotRequest,
   RechargeReceipt,
   RechargeRequest,
   VideoGenerationJob,
@@ -9,109 +13,106 @@ import type {
   WalletSummary,
   WalletTransaction
 } from "../../shared/types";
-import type { AccountService } from "./accountService";
-import type { AppDatabase } from "./database";
+import type { BackendClient, UsageReservationReceipt } from "./backendClient";
 
 export class BillingService {
-  constructor(
-    private readonly database: AppDatabase,
-    private readonly accountService: AccountService
-  ) {}
+  constructor(private readonly backendClient: BackendClient) {}
 
-  getWalletSummary(): WalletSummary {
-    const session = this.accountService.requireSession();
-    return this.database.getWalletSummary(session.userId);
+  getWalletSummary(): Promise<WalletSummary> {
+    this.backendClient.requireSession();
+    return this.backendClient.getWallet();
   }
 
-  listWalletTransactions(limit = 100): WalletTransaction[] {
-    const session = this.accountService.requireSession();
-    return this.database.listWalletTransactions(session.userId, limit);
+  listWalletTransactions(limit = 100): Promise<WalletTransaction[]> {
+    this.backendClient.requireSession();
+    return this.backendClient.listWalletTransactions(limit);
   }
 
-  assertEnoughCreditsForProductRequest(request: ProductShotJob["request"]): void {
-    this.assertEnoughCredits(estimateRequestCostCents(request));
+  recharge(request: RechargeRequest): Promise<RechargeReceipt> {
+    this.backendClient.requireSession();
+    return this.backendClient.recharge(request);
   }
 
-  assertEnoughCreditsForVideoRequest(request: VideoGenerationRequest): void {
-    this.assertEnoughCredits(estimateVideoRequestCostCents(request));
-  }
-
-  async recharge(request: RechargeRequest): Promise<RechargeReceipt> {
-    const session = this.accountService.requireSession();
-    const amountCents = normalizeRechargeAmount(request.amountCents);
-    const transaction: WalletTransaction = {
-      id: randomUUID(),
-      userId: session.userId,
-      type: "recharge",
-      amountCents,
+  reserveProductRequest(request: ProductShotRequest): Promise<UsageReservationReceipt> {
+    this.backendClient.requireSession();
+    return this.backendClient.reserveUsage({
+      estimatedPoints: estimateRequestCostCents(request),
+      mediaType: "image",
       providerId: request.providerId,
       modelId: request.modelId,
-      note: "WeChat QR recharge recorded locally.",
-      createdAt: new Date().toISOString()
-    };
-    await this.database.addWalletTransaction(transaction);
-    return {
-      transaction,
-      wallet: this.database.getWalletSummary(session.userId)
-    };
+      note: "Product image generation reserve."
+    });
   }
 
-  async recordJobUsage(job: ProductShotJob): Promise<WalletSummary | null> {
-    const session = this.accountService.getSession();
-    if (!session || job.results.length === 0) return null;
+  reserveVideoRequest(request: VideoGenerationRequest): Promise<UsageReservationReceipt> {
+    this.backendClient.requireSession();
+    return this.backendClient.reserveUsage({
+      estimatedPoints: estimateVideoRequestCostCents(request),
+      mediaType: "video",
+      providerId: request.providerId,
+      modelId: request.modelId,
+      note: "Product video generation reserve."
+    });
+  }
+
+  commitProductUsage(reservationId: string, job: ProductShotJob): Promise<WalletSummary> {
     const estimatedFullCost = estimateRequestCostCents(job.request);
     const requestedImages = Math.max(1, job.request.presetIds.length * Math.max(1, job.request.outputCount));
     const successfulImages = Math.max(0, job.results.length);
-    const amountCents = -Math.ceil((estimatedFullCost * successfulImages) / requestedImages);
-    if (amountCents === 0) return this.database.getWalletSummary(session.userId);
-
-    await this.database.addWalletTransaction({
-      id: randomUUID(),
-      userId: session.userId,
-      type: "usage",
-      amountCents,
+    const chargedPoints = Math.ceil((estimatedFullCost * successfulImages) / requestedImages);
+    return this.backendClient.commitUsage({
+      reservationId,
+      jobId: job.id,
+      mediaType: "image",
       providerId: job.request.providerId,
       modelId: job.request.modelId,
-      jobId: job.id,
-      note: `Generated ${successfulImages} image(s).`,
-      createdAt: new Date().toISOString()
+      status: job.status,
+      chargedPoints,
+      resultCount: successfulImages,
+      errorMessage: summarizeJobErrors(job)
     });
-    return this.database.getWalletSummary(session.userId);
   }
 
-  async recordVideoUsage(job: VideoGenerationJob): Promise<WalletSummary | null> {
-    const session = this.accountService.getSession();
-    if (!session || job.results.length === 0) return null;
-    const amountCents = -estimateVideoRequestCostCents(job.request);
-    if (amountCents === 0) return this.database.getWalletSummary(session.userId);
-
-    await this.database.addWalletTransaction({
-      id: randomUUID(),
-      userId: session.userId,
-      type: "usage",
-      amountCents,
+  commitVideoUsage(reservationId: string, job: VideoGenerationJob): Promise<WalletSummary> {
+    const chargedPoints = job.results.length > 0 ? estimateVideoRequestCostCents(job.request) : 0;
+    return this.backendClient.commitUsage({
+      reservationId,
+      jobId: job.id,
+      mediaType: "video",
       providerId: job.request.providerId,
       modelId: job.request.modelId,
-      jobId: job.id,
-      note: `Generated ${job.request.durationSeconds}s video.`,
-      createdAt: new Date().toISOString()
+      status: job.status,
+      chargedPoints,
+      resultCount: job.results.length,
+      errorMessage: summarizeJobErrors(job)
     });
-    return this.database.getWalletSummary(session.userId);
   }
 
-  private assertEnoughCredits(requiredCredits: number): void {
-    const session = this.accountService.requireSession();
-    const wallet = this.database.getWalletSummary(session.userId);
-    if (wallet.balanceCents < requiredCredits) {
-      throw new Error(`积分不足：需要 ${formatCredits(requiredCredits)}，当前余额 ${formatCredits(wallet.balanceCents)}。`);
+  cancelUsage(reservationId: string, errorMessage?: string, jobId?: string): Promise<WalletSummary> {
+    return this.backendClient.cancelUsage({ reservationId, errorMessage, jobId });
+  }
+
+  async assertEnoughCreditsForProductRequest(request: ProductShotRequest): Promise<void> {
+    await this.assertEnoughCredits(estimateRequestCostCents(request));
+  }
+
+  async assertEnoughCreditsForVideoRequest(request: VideoGenerationRequest): Promise<void> {
+    await this.assertEnoughCredits(estimateVideoRequestCostCents(request));
+  }
+
+  private async assertEnoughCredits(requiredCredits: number): Promise<void> {
+    this.backendClient.requireSession();
+    const wallet = await this.backendClient.getWallet();
+    const availableCredits = wallet.balanceCents - (wallet.reservedCents ?? 0);
+    if (availableCredits < requiredCredits) {
+      throw new Error(
+        `积分余额不足：需要 ${formatCredits(requiredCredits)}，当前可用余额 ${formatCredits(availableCredits)}。请先充值或降低生成数量/质量。`
+      );
     }
   }
 }
 
-function normalizeRechargeAmount(value: number): number {
-  const amount = Math.floor(Number(value) || 0);
-  if (amount < 100 || amount > 1000000) {
-    throw new Error("\u5145\u503c\u79ef\u5206\u9700\u8981\u5728 100 \u5230 1000000 \u4e4b\u95f4\u3002");
-  }
-  return amount;
+function summarizeJobErrors(job: Pick<ProductShotJob | VideoGenerationJob, "errors">): string | undefined {
+  if (job.errors.length === 0) return undefined;
+  return job.errors.map((error) => error.message).join("；");
 }

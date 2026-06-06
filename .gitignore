@@ -8,4 +8,7 @@ work/
 *.sqlite
 .env
 .env.*
+!.env.example
+!server/.env.example
 secrets.enc.json
+server/data/

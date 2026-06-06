@@ -1,0 +1,29 @@
+{
+  "name": "product-shot-studio-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local ledger and monitoring backend for Product Shot Studio.",
+  "type": "commonjs",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "build": "tsc -p tsconfig.json",
+    "prisma:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:init": "prisma generate && node scripts/init-db.cjs",
+    "pretest": "node scripts/prepare-test-db.cjs",
+    "test": "vitest run --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.9.0",
+    "fastify": "^5.3.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "prisma": "^6.9.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.9"
+  }
+}

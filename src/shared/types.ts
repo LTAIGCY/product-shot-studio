@@ -144,6 +144,7 @@ export interface AuthCredentials {
 export interface WalletSummary {
   userId: string;
   balanceCents: number;
+  reservedCents?: number;
   usedCents: number;
   totalRechargedCents: number;
   currency: "CNY";
@@ -153,8 +154,9 @@ export interface WalletSummary {
 export interface WalletTransaction {
   id: string;
   userId: string;
-  type: "recharge" | "usage";
+  type: "recharge" | "usage" | "adjustment";
   amountCents: number;
+  balanceAfterCents?: number;
   providerId?: ProviderId;
   modelId?: string;
   jobId?: string;
