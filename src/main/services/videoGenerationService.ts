@@ -12,6 +12,13 @@ import type {
 } from "../../shared/types";
 import type { AppDatabase } from "./database";
 import type { SecretStore } from "./secretStore";
+import {
+  getAllowedVideoAspectRatio,
+  getAllowedVideoDuration,
+  getAllowedVideoResolution,
+  getDefaultVideoModelId,
+  getVideoModelMeta
+} from "../../shared/videoModels";
 
 export class VideoGenerationService {
   private readonly generatedDir: string;
@@ -109,11 +116,18 @@ export class VideoGenerationService {
   }
 
   private normalizeRequest(request: VideoGenerationRequest): VideoGenerationRequest {
+    const modelId = getVideoModelMeta(request.providerId, request.modelId)
+      ? request.modelId
+      : getDefaultVideoModelId(request.providerId);
+    if (!modelId) {
+      throw new Error(`${request.providerId} does not support product video generation yet.`);
+    }
     return {
       ...request,
-      aspectRatio: normalizeAspectRatio(request.aspectRatio),
-      durationSeconds: Math.min(30, Math.max(1, Math.ceil(Number(request.durationSeconds) || 5))),
-      resolution: request.resolution === "1080p" ? "1080p" : "720p",
+      modelId,
+      aspectRatio: getAllowedVideoAspectRatio(request.providerId, modelId, normalizeAspectRatio(request.aspectRatio)),
+      durationSeconds: getAllowedVideoDuration(request.providerId, modelId, request.durationSeconds),
+      resolution: getAllowedVideoResolution(request.providerId, modelId, request.resolution === "1080p" ? "1080p" : "720p"),
       watermark: Boolean(request.watermark),
       enableAudio: Boolean(request.enableAudio)
     };

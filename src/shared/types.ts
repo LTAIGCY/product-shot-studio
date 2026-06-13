@@ -2,10 +2,17 @@ export type ProviderId = "aliyun" | "volcano" | "tencent";
 
 export type PresetId =
   | "white-main"
-  | "lifestyle-scene"
-  | "texture-detail"
-  | "marketing-banner"
-  | "product-poster";
+  | "scene"
+  | "selling-points"
+  | "detail"
+  | "size-params"
+  | "function-analysis"
+  | "multi-angle"
+  | "person-usage"
+  | "comparison"
+  | "promotion-poster"
+  | "detail-page-long"
+  | "custom";
 
 export type FidelityMode = "strict" | "balanced" | "creative";
 export type ImageQuality = "standard" | "high" | "ultra";
@@ -74,6 +81,7 @@ export interface ProviderCapabilities {
   aspectRatios: AspectRatio[];
   outputFormats: ExportFormat[];
   videoModels?: string[];
+  videoModelDetails?: VideoModelMetadata[];
   videoAspectRatios?: AspectRatio[];
   videoDurations?: number[];
   videoResolutions?: VideoResolution[];
@@ -95,6 +103,23 @@ export interface ProviderAdapter {
     context: ProviderVideoGenerateContext
   ): Promise<VideoGenerationResult>;
   cancelJob(jobId: string): Promise<void>;
+}
+
+export interface VideoModelMetadata {
+  providerId: ProviderId;
+  modelId: string;
+  displayName: string;
+  aspectRatios: AspectRatio[];
+  durations: number[];
+  resolutions: VideoResolution[];
+  supportsImageToVideo: boolean;
+  supportsAudio?: boolean;
+  sourceUrl: string;
+  tencentVod?: {
+    modelName: string;
+    modelVersion: string;
+    fileUsage?: "FirstFrame" | "Reference";
+  };
 }
 
 export interface ProviderGenerateContext {
@@ -168,6 +193,7 @@ export interface VideoGenerationRequest {
   sourceImagePath: string;
   providerId: ProviderId;
   modelId: string;
+  tencentVodSubAppId?: string;
   prompt: string;
   aspectRatio: AspectRatio;
   durationSeconds: number;

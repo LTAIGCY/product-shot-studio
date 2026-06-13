@@ -13,6 +13,7 @@ import type {
   VideoGenerationResult
 } from "../../shared/types";
 import { providerConfigs } from "../../shared/providers";
+import { getDefaultVideoModelId, getVideoModelMeta, getVideoModelsForProvider } from "../../shared/videoModels";
 import { aspectRatioToSize, outputFormatToExtension, writeBase64Image, writeBinaryImage } from "./util";
 
 interface ImageDataItem {
@@ -44,6 +45,61 @@ interface TencentImageResponse {
     ResultImageUrl?: string;
     ResultImageList?: string[];
   };
+}
+
+interface TencentCloudError {
+  Code?: string;
+  Message?: string;
+}
+
+interface TencentVodCreateResponse {
+  Response?: {
+    Error?: TencentCloudError;
+    TaskId?: string;
+    RequestId?: string;
+  };
+}
+
+interface TencentVodDescribeResponse {
+  Response?: {
+    Error?: TencentCloudError;
+    Status?: string;
+    ErrCode?: number;
+    ErrCodeExt?: string;
+    Message?: string;
+    AigcVideoTask?: {
+      Status?: string;
+      ErrCode?: number;
+      ErrCodeExt?: string;
+      Message?: string;
+      Output?: TencentVodOutput;
+    };
+    MediaProcessTask?: {
+      Status?: string;
+      ErrCode?: number;
+      ErrCodeExt?: string;
+      Message?: string;
+      Output?: TencentVodOutput;
+    };
+    Task?: {
+      Status?: string;
+      ErrCode?: number;
+      Message?: string;
+      Output?: TencentVodOutput;
+    };
+    RequestId?: string;
+  };
+}
+
+interface TencentVodOutput {
+  FileUrl?: string;
+  Url?: string;
+  VideoUrl?: string;
+  FileInfos?: Array<{
+    FileUrl?: string;
+    Url?: string;
+    MediaUrl?: string;
+  }>;
 }
 
 interface AsyncVideoTaskResponse {
@@ -95,18 +151,13 @@ abstract class ChinaProviderAdapter implements Omit<ProviderAdapter, "generatePr
       supportsImageEdit: true,
       supportsCancel: true
     };
-    if (this.id === "aliyun") {
-      capabilities.videoModels = ["wanx2.1-i2v-turbo", "wanx2.1-i2v-plus"];
-      capabilities.videoAspectRatios = ["1:1", "4:5", "16:9", "9:16"];
-      capabilities.videoDurations = [5];
-      capabilities.videoResolutions = ["720p", "1080p"];
-      capabilities.supportsVideoGeneration = true;
-    }
-    if (this.id === "volcano") {
-      capabilities.videoModels = ["doubao-seedance-2-0-260128"];
-      capabilities.videoAspectRatios = ["16:9", "9:16", "1:1", "4:5"];
-      capabilities.videoDurations = [5, 10];
-      capabilities.videoResolutions = ["720p", "1080p"];
+    const videoModels = getVideoModelsForProvider(this.id);
+    if (videoModels.length) {
+      capabilities.videoModelDetails = videoModels;
+      capabilities.videoModels = videoModels.map((model) => model.modelId);
+      capabilities.videoAspectRatios = unique(videoModels.flatMap((model) => model.aspectRatios));
+      capabilities.videoDurations = unique(videoModels.flatMap((model) => model.durations)).sort((a, b) => a - b);
+      capabilities.videoResolutions = unique(videoModels.flatMap((model) => model.resolutions));
       capabilities.supportsVideoGeneration = true;
     }
     return capabilities;
@@ -156,9 +207,10 @@ abstract class ChinaProviderAdapter implements Omit<ProviderAdapter, "generatePr
     context: ProviderGenerateContext;
     items: ImageDataItem[];
   }): Promise<ProductShotResult[]> {
+    const requestedCount = this.normalizeImageOutputCount(input.request);
     const extension = outputFormatToExtension(input.request.exportFormat);
     const results: ProductShotResult[] = [];
-    for (const [index, item] of input.items.slice(0, input.request.outputCount).entries()) {
+    for (const [index, item] of input.items.slice(0, requestedCount).entries()) {
       const imagePath = await this.writeOneImage({
         item,
         outputDir: input.context.outputDir,
@@ -175,10 +227,18 @@ abstract class ChinaProviderAdapter implements Omit<ProviderAdapter, "generatePr
         createdAt: new Date().toISOString()
       });
     }
-    if (results.length === 0) {
-      throw new Error(`${providerConfigs[this.id].displayName} returned no image data.`);
+    if (results.length < requestedCount) {
+      throw this.createImageCountError(results.length, requestedCount);
     }
     return results;
+  }
+
+  protected normalizeImageOutputCount(request: ProductShotRequest): number {
+    return Math.min(4, Math.max(1, Math.floor(Number(request.outputCount) || 1)));
+  }
+
+  protected createImageCountError(receivedCount: number, requestedCount: number): Error {
+    return new Error(`${providerConfigs[this.id].displayName} 只返回了 ${receivedCount}/${requestedCount} 张图片，请重试或降低张数。`);
   }
 
   private async writeOneImage(input: {
@@ -282,25 +342,54 @@ export class AliyunProviderAdapter extends ChinaProviderAdapter {
   ): Promise<ProductShotResult[]> {
     const controller = this.createController(context);
     try {
+      const requestedCount = this.normalizeImageOutputCount(request);
+      const sourceImageUrl = await this.sourceDataUrl(request, context);
+      const items: ImageDataItem[] = [];
+      while (items.length < requestedCount) {
+        const batchItems = await this.requestImageBatch({
+          request,
+          context,
+          sourceImageUrl,
+          count: requestedCount - items.length,
+          signal: controller.signal
+        });
+        if (batchItems.length === 0) {
+          throw this.createImageCountError(items.length, requestedCount);
+        }
+        items.push(...batchItems);
+      }
+      return this.writeImages({ request: { ...request, outputCount: requestedCount }, context, items });
+    } finally {
+      this.releaseController(context);
+    }
+  }
+
+  private async requestImageBatch(input: {
+    request: ProductShotRequest;
+    context: ProviderGenerateContext;
+    sourceImageUrl: string;
+    count: number;
+    signal: AbortSignal;
+  }): Promise<ImageDataItem[]> {
       const response = await fetch("https://dashscope.aliyuncs.com/api/v1/services/aigc/image2image/image-synthesis", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${context.apiKey}`,
+          Authorization: `Bearer ${input.context.apiKey}`,
           "Content-Type": "application/json",
           "X-DashScope-Async": "enable"
         },
         body: JSON.stringify({
-          model: request.modelId || providerConfigs.aliyun.defaultModel,
+          model: input.request.modelId || providerConfigs.aliyun.defaultModel,
           input: {
-            prompt: context.prompt,
-            image_url: await this.sourceDataUrl(request, context)
+            prompt: input.context.prompt,
+            image_url: input.sourceImageUrl
           },
           parameters: {
-            n: request.outputCount,
-            size: aspectRatioToSize(request.aspectRatio)
+            n: input.count,
+            size: aspectRatioToSize(input.request.aspectRatio)
           }
         }),
-        signal: controller.signal
+        signal: input.signal
       });
       const body = (await response.json()) as AliyunImageResponse;
       if (!response.ok) {
@@ -308,15 +397,12 @@ export class AliyunProviderAdapter extends ChinaProviderAdapter {
       }
       const directResults = body.output?.results;
       if (directResults?.length) {
-        return this.writeImages({ request, context, items: directResults });
+        return directResults;
       }
       if (!body.output?.task_id) {
         throw new Error("Aliyun returned no task id or image data.");
       }
-      return this.pollTask({ request, context, taskId: body.output.task_id, signal: controller.signal });
-    } finally {
-      this.releaseController(context);
-    }
+      return this.pollTask({ context: input.context, taskId: body.output.task_id, signal: input.signal });
   }
 
   async generateProductVideo(
@@ -366,11 +452,10 @@ export class AliyunProviderAdapter extends ChinaProviderAdapter {
   }
 
   private async pollTask(input: {
-    request: ProductShotRequest;
     context: ProviderGenerateContext;
     taskId: string;
     signal: AbortSignal;
-  }): Promise<ProductShotResult[]> {
+  }): Promise<ImageDataItem[]> {
     for (let attempt = 0; attempt < 40; attempt += 1) {
       await delay(1500, input.signal);
       const response = await fetch(`https://dashscope.aliyuncs.com/api/v1/tasks/${input.taskId}`, {
@@ -382,7 +467,7 @@ export class AliyunProviderAdapter extends ChinaProviderAdapter {
         throw new Error(body.message ?? `Aliyun task query failed with HTTP ${response.status}`);
       }
       if (body.output?.task_status === "SUCCEEDED" && body.output.results?.length) {
-        return this.writeImages({ request: input.request, context: input.context, items: body.output.results });
+        return body.output.results;
       }
       if (body.output?.task_status === "FAILED") {
         throw new Error(body.message ?? "Aliyun image generation task failed.");
@@ -433,31 +518,57 @@ export class VolcanoProviderAdapter extends ChinaProviderAdapter {
   ): Promise<ProductShotResult[]> {
     const controller = this.createController(context);
     try {
+      const requestedCount = this.normalizeImageOutputCount(request);
+      const sourceImageUrl = await this.sourceDataUrl(request, context);
+      const items: ImageDataItem[] = [];
+      while (items.length < requestedCount) {
+        const batchItems = await this.requestImageBatch({
+          request,
+          context,
+          sourceImageUrl,
+          count: requestedCount - items.length,
+          signal: controller.signal
+        });
+        if (batchItems.length === 0) {
+          throw this.createImageCountError(items.length, requestedCount);
+        }
+        items.push(...batchItems);
+      }
+      return this.writeImages({ request: { ...request, outputCount: requestedCount }, context, items });
+    } finally {
+      this.releaseController(context);
+    }
+  }
+
+  private async requestImageBatch(input: {
+    request: ProductShotRequest;
+    context: ProviderGenerateContext;
+    sourceImageUrl: string;
+    count: number;
+    signal: AbortSignal;
+  }): Promise<ImageDataItem[]> {
       const response = await fetch("https://ark.cn-beijing.volces.com/api/v3/images/generations", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${context.apiKey}`,
+          Authorization: `Bearer ${input.context.apiKey}`,
           "Content-Type": "application/json"
         },
         body: JSON.stringify({
-          model: request.modelId || providerConfigs.volcano.defaultModel,
-          prompt: context.prompt,
-          image: await this.sourceDataUrl(request, context),
+          model: input.request.modelId || providerConfigs.volcano.defaultModel,
+          prompt: input.context.prompt,
+          image: input.sourceImageUrl,
           response_format: "b64_json",
-          size: aspectRatioToVolcanoSize(request.aspectRatio, request.modelId || providerConfigs.volcano.defaultModel),
-          n: request.outputCount,
+          size: aspectRatioToVolcanoSize(input.request.aspectRatio, input.request.modelId || providerConfigs.volcano.defaultModel),
+          n: input.count,
           watermark: false
         }),
-        signal: controller.signal
+        signal: input.signal
       });
       const body = (await response.json()) as VolcanoImageResponse;
       if (!response.ok) {
         throw new Error(body.error?.message ?? `Volcano request failed with HTTP ${response.status}`);
       }
-      return this.writeImages({ request, context, items: body.data ?? [] });
-    } finally {
-      this.releaseController(context);
-    }
+      return body.data ?? [];
   }
 
   async generateProductVideo(
@@ -556,42 +667,163 @@ export class TencentProviderAdapter extends ChinaProviderAdapter {
     const controller = this.createController(context);
     try {
       const credentials = parseTencentCredentials(context.apiKey);
-      const payload = JSON.stringify({
-        Prompt: context.prompt,
-        ImageBase64: (await this.sourceDataUrl(request, context)).replace(/^data:image\/[a-z0-9.+-]+;base64,/i, ""),
-        Resolution: aspectRatioToTencentResolution(request.aspectRatio),
-        LogoAdd: 0
-      });
-      const headers = signTencentRequest({
-        secretId: credentials.secretId,
-        secretKey: credentials.secretKey,
-        action: request.modelId === "hunyuan-image" ? "TextToImage" : "TextToImageRapid",
-        payload
-      });
-      const response = await fetch("https://hunyuan.tencentcloudapi.com", {
-        method: "POST",
-        headers,
-        body: payload,
-        signal: controller.signal
-      });
-      const body = (await response.json()) as TencentImageResponse;
-      const error = body.Response?.Error;
-      if (!response.ok || error) {
-        throw new Error(error?.Message ?? `Tencent request failed with HTTP ${response.status}`);
+      const requestedCount = this.normalizeImageOutputCount(request);
+      const imageBase64 = (await this.sourceDataUrl(request, context)).replace(/^data:image\/[a-z0-9.+-]+;base64,/i, "");
+      const items: ImageDataItem[] = [];
+
+      for (let index = 0; index < requestedCount && items.length < requestedCount; index += 1) {
+        const payload = JSON.stringify({
+          Prompt: context.prompt,
+          ImageBase64: imageBase64,
+          Resolution: aspectRatioToTencentResolution(request.aspectRatio),
+          LogoAdd: 0
+        });
+        const headers = signTencentRequest({
+          secretId: credentials.secretId,
+          secretKey: credentials.secretKey,
+          action: request.modelId === "hunyuan-image" ? "TextToImage" : "TextToImageRapid",
+          payload
+        });
+        const response = await fetch("https://hunyuan.tencentcloudapi.com", {
+          method: "POST",
+          headers,
+          body: payload,
+          signal: controller.signal
+        });
+        const body = (await response.json()) as TencentImageResponse;
+        const error = body.Response?.Error;
+        if (!response.ok || error) {
+          throw new Error(error?.Message ?? `Tencent request failed with HTTP ${response.status}`);
+        }
+        items.push(
+          ...(body.Response?.ResultImageList ?? []).map((image) => ({ image })),
+          ...(body.Response?.ResultImage ? [{ image: body.Response.ResultImage }] : []),
+          ...(body.Response?.ResultImageUrl ? [{ url: body.Response.ResultImageUrl }] : [])
+        );
       }
-      const items: ImageDataItem[] = [
-        ...(body.Response?.ResultImageList ?? []).map((image) => ({ image })),
-        ...(body.Response?.ResultImage ? [{ image: body.Response.ResultImage }] : []),
-        ...(body.Response?.ResultImageUrl ? [{ url: body.Response.ResultImageUrl }] : [])
-      ];
-      return this.writeImages({ request: { ...request, outputCount: Math.min(request.outputCount, 1) }, context, items });
+
+      return this.writeImages({ request: { ...request, outputCount: requestedCount }, context, items });
     } finally {
       this.releaseController(context);
     }
   }
+
+  async generateProductVideo(
+    request: VideoGenerationRequest,
+    context: ProviderVideoGenerateContext
+  ): Promise<VideoGenerationResult> {
+    const controller = this.createVideoController(context);
+    try {
+      const credentials = parseTencentCredentials(context.apiKey);
+      const model = getVideoModelMeta("tencent", request.modelId);
+      if (!model?.tencentVod) {
+        throw new Error("当前腾讯视频模型未配置官方 VOD AIGC 参数。");
+      }
+      const subAppId = parseTencentVodSubAppId(request.tencentVodSubAppId);
+      const imageBase64 = await fs.readFile(request.sourceImagePath, "base64");
+      const createPayload = JSON.stringify({
+        SubAppId: subAppId,
+        ModelName: model.tencentVod.modelName,
+        ModelVersion: model.tencentVod.modelVersion,
+        FileInfos: [
+          {
+            Type: "Base64",
+            Category: "Image",
+            Usage: model.tencentVod.fileUsage ?? "FirstFrame",
+            Base64: imageBase64
+          }
+        ],
+        Prompt: context.prompt,
+        EnhancePrompt: "Disabled",
+        OutputConfig: {
+          StorageMode: "Temporary",
+          Duration: normalizeVideoDuration(request.durationSeconds),
+          Resolution: request.resolution.toUpperCase(),
+          AspectRatio: request.aspectRatio,
+          AudioGeneration: request.enableAudio && model.supportsAudio ? "Enabled" : "Disabled"
+        },
+        SessionId: sanitizeTencentSessionId(context.jobId)
+      });
+      const createResponse = await fetchTencentCloud<TencentVodCreateResponse>({
+        credentials,
+        service: "vod",
+        host: "vod.tencentcloudapi.com",
+        version: "2018-07-17",
+        action: "CreateAigcVideoTask",
+        payload: createPayload,
+        signal: controller.signal
+      });
+      const createError = createResponse.Response?.Error;
+      if (createError) {
+        throw new Error(createError.Message ?? createError.Code ?? "Tencent VOD video task creation failed.");
+      }
+      const taskId = createResponse.Response?.TaskId;
+      if (!taskId) {
+        throw new Error("Tencent VOD returned no video task id.");
+      }
+      return this.pollTencentVodTask({
+        credentials,
+        request,
+        context,
+        taskId,
+        subAppId,
+        signal: controller.signal
+      });
+    } finally {
+      this.releaseVideoController(context);
+    }
+  }
+
+  private async pollTencentVodTask(input: {
+    credentials: TencentCredentials;
+    request: VideoGenerationRequest;
+    context: ProviderVideoGenerateContext;
+    taskId: string;
+    subAppId: number;
+    signal: AbortSignal;
+  }): Promise<VideoGenerationResult> {
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      await delay(5000, input.signal);
+      const payload = JSON.stringify({
+        SubAppId: input.subAppId,
+        TaskId: input.taskId
+      });
+      const body = await fetchTencentCloud<TencentVodDescribeResponse>({
+        credentials: input.credentials,
+        service: "vod",
+        host: "vod.tencentcloudapi.com",
+        version: "2018-07-17",
+        action: "DescribeTaskDetail",
+        payload,
+        signal: input.signal
+      });
+      const error = body.Response?.Error;
+      if (error) {
+        throw new Error(error.Message ?? error.Code ?? "Tencent VOD video task query failed.");
+      }
+      const videoUrl = extractTencentVodVideoUrl(body);
+      if (videoUrl) {
+        return this.writeVideoFromUrl({
+          request: input.request,
+          context: input.context,
+          url: videoUrl,
+          fileName: `tencent-vod-${input.taskId}.mp4`
+        });
+      }
+      if (isTencentVodTaskFailed(body)) {
+        throw new Error(extractTencentVodErrorMessage(body) ?? "Tencent VOD video generation task failed.");
+      }
+    }
+    throw new Error("Tencent VOD video generation timed out.");
+  }
 }
 
-function parseTencentCredentials(value: string): { secretId: string; secretKey: string } {
+interface TencentCredentials {
+  secretId: string;
+  secretKey: string;
+}
+
+function parseTencentCredentials(value: string): TencentCredentials {
   const [secretId, secretKey] = value.split(":");
   if (!secretId || !secretKey) {
     throw new Error("Tencent Hunyuan requires credentials in SecretId:SecretKey format.");
@@ -605,13 +837,32 @@ function signTencentRequest(input: {
   action: string;
   payload: string;
 }): Record<string, string> {
-  const service = "hunyuan";
-  const host = "hunyuan.tencentcloudapi.com";
-  const version = "2023-09-01";
+  return signTencentApiRequest({
+    secretId: input.secretId,
+    secretKey: input.secretKey,
+    service: "hunyuan",
+    host: "hunyuan.tencentcloudapi.com",
+    version: "2023-09-01",
+    action: input.action,
+    payload: input.payload,
+    region: "ap-guangzhou"
+  });
+}
+
+function signTencentApiRequest(input: {
+  secretId: string;
+  secretKey: string;
+  service: string;
+  host: string;
+  version: string;
+  action: string;
+  payload: string;
+  region?: string;
+}): Record<string, string> {
   const algorithm = "TC3-HMAC-SHA256";
   const timestamp = Math.floor(Date.now() / 1000);
   const date = new Date(timestamp * 1000).toISOString().slice(0, 10);
-  const canonicalHeaders = `content-type:application/json\nhost:${host}\nx-tc-action:${input.action.toLowerCase()}\n`;
+  const canonicalHeaders = `content-type:application/json\nhost:${input.host}\nx-tc-action:${input.action.toLowerCase()}\n`;
   const signedHeaders = "content-type;host;x-tc-action";
   const hashedRequestPayload = sha256(input.payload);
   const canonicalRequest = [
@@ -622,7 +873,7 @@ function signTencentRequest(input: {
     signedHeaders,
     hashedRequestPayload
   ].join("\n");
-  const credentialScope = `${date}/${service}/tc3_request`;
+  const credentialScope = `${date}/${input.service}/tc3_request`;
   const stringToSign = [
     algorithm,
     String(timestamp),
@@ -630,19 +881,52 @@ function signTencentRequest(input: {
     sha256(canonicalRequest)
   ].join("\n");
   const secretDate = hmac(`TC3${input.secretKey}`, date);
-  const secretService = hmac(secretDate, service);
+  const secretService = hmac(secretDate, input.service);
   const secretSigning = hmac(secretService, "tc3_request");
   const signature = hmac(secretSigning, stringToSign, "hex");
   const authorization = `${algorithm} Credential=${input.secretId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
-  return {
+  const headers: Record<string, string> = {
     Authorization: authorization,
     "Content-Type": "application/json",
-    Host: host,
+    Host: input.host,
     "X-TC-Action": input.action,
-    "X-TC-Version": version,
-    "X-TC-Timestamp": String(timestamp),
-    "X-TC-Region": "ap-guangzhou"
+    "X-TC-Version": input.version,
+    "X-TC-Timestamp": String(timestamp)
   };
+  if (input.region) {
+    headers["X-TC-Region"] = input.region;
+  }
+  return headers;
+}
+
+async function fetchTencentCloud<T>(input: {
+  credentials: TencentCredentials;
+  service: string;
+  host: string;
+  version: string;
+  action: string;
+  payload: string;
+  signal: AbortSignal;
+}): Promise<T> {
+  const response = await fetch(`https://${input.host}`, {
+    method: "POST",
+    headers: signTencentApiRequest({
+      secretId: input.credentials.secretId,
+      secretKey: input.credentials.secretKey,
+      service: input.service,
+      host: input.host,
+      version: input.version,
+      action: input.action,
+      payload: input.payload
+    }),
+    body: input.payload,
+    signal: input.signal
+  });
+  const body = (await response.json()) as T & { Response?: { Error?: TencentCloudError } };
+  if (!response.ok || body.Response?.Error) {
+    throw new Error(body.Response?.Error?.Message ?? `Tencent ${input.action} failed with HTTP ${response.status}`);
+  }
+  return body;
 }
 
 function aspectRatioToTencentResolution(aspectRatio: ProductShotRequest["aspectRatio"]): string {
@@ -676,13 +960,7 @@ function aspectRatioToVolcanoSize(aspectRatio: ProductShotRequest["aspectRatio"]
 }
 
 function getDefaultVideoModel(providerId: ProviderId): string {
-  if (providerId === "aliyun") {
-    return "wanx2.1-i2v-turbo";
-  }
-  if (providerId === "volcano") {
-    return "doubao-seedance-2-0-260128";
-  }
-  return providerConfigs[providerId].defaultModel;
+  return getDefaultVideoModelId(providerId) || providerConfigs[providerId].defaultModel;
 }
 
 function normalizeVideoDuration(value: number): number {
@@ -719,6 +997,74 @@ function buildVolcanoVideoPrompt(request: VideoGenerationRequest, prompt: string
 
 function sanitizeFileName(value: string): string {
   return value.replace(/[<>:"/\\|?*]+/g, "-");
+}
+
+function parseTencentVodSubAppId(value: string | undefined): number {
+  if (!value?.trim()) {
+    throw new Error("腾讯云点播 AIGC 生视频需要先在设置中填写 SubAppId。");
+  }
+  const parsed = Number(value.trim());
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error("腾讯云点播 SubAppId 必须是非负整数。");
+  }
+  return parsed;
+}
+
+function sanitizeTencentSessionId(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64) || `studio-${Date.now()}`;
+}
+
+function extractTencentVodVideoUrl(body: TencentVodDescribeResponse): string | null {
+  const outputs = [
+    body.Response?.AigcVideoTask?.Output,
+    body.Response?.MediaProcessTask?.Output,
+    body.Response?.Task?.Output
+  ].filter(Boolean) as TencentVodOutput[];
+  for (const output of outputs) {
+    const direct = output.FileUrl ?? output.Url ?? output.VideoUrl;
+    if (direct) return direct;
+    const fileUrl = output.FileInfos?.find((item) => item.FileUrl || item.Url || item.MediaUrl);
+    if (fileUrl) return fileUrl.FileUrl ?? fileUrl.Url ?? fileUrl.MediaUrl ?? null;
+  }
+  return null;
+}
+
+function isTencentVodTaskFailed(body: TencentVodDescribeResponse): boolean {
+  const response = body.Response;
+  const statuses = [
+    response?.Status,
+    response?.AigcVideoTask?.Status,
+    response?.MediaProcessTask?.Status,
+    response?.Task?.Status
+  ]
+    .filter(Boolean)
+    .map((status) => String(status).toLowerCase());
+  const errorCodes = [
+    response?.ErrCode,
+    response?.AigcVideoTask?.ErrCode,
+    response?.MediaProcessTask?.ErrCode,
+    response?.Task?.ErrCode
+  ].filter((value): value is number => typeof value === "number");
+  return (
+    statuses.some((status) => ["fail", "failed", "error", "aborted"].includes(status)) ||
+    errorCodes.some((code) => code !== 0)
+  );
+}
+
+function extractTencentVodErrorMessage(body: TencentVodDescribeResponse): string | undefined {
+  return (
+    body.Response?.Message ||
+    body.Response?.AigcVideoTask?.Message ||
+    body.Response?.MediaProcessTask?.Message ||
+    body.Response?.Task?.Message ||
+    body.Response?.ErrCodeExt ||
+    body.Response?.AigcVideoTask?.ErrCodeExt ||
+    body.Response?.MediaProcessTask?.ErrCodeExt
+  );
+}
+
+function unique<T>(items: T[]): T[] {
+  return Array.from(new Set(items));
 }
 
 function sha256(value: string): string {

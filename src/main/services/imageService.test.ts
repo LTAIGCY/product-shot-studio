@@ -6,10 +6,10 @@ describe("image service helpers", () => {
     expect(
       buildExportFileName({
         index: 2,
-        presetId: "marketing-banner",
+        presetId: "promotion-poster",
         providerId: "studio",
         format: "jpg"
       })
-    ).toBe("03-studio-marketing-banner.jpg");
+    ).toBe("03-studio-promotion-poster.jpg");
   });
 });

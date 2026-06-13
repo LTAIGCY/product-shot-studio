@@ -29,7 +29,7 @@ function buildRequest(): ProductShotRequest {
     sourceImagePath: "product.png",
     providerId: "volcano",
     modelId: "doubao-seedream-5-0-260128",
-    presetIds: ["white-main", "lifestyle-scene", "marketing-banner"],
+    presetIds: ["white-main", "scene", "promotion-poster"],
     fidelity: "strict",
     quality: "ultra",
     outputCount: 1,

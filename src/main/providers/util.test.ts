@@ -56,7 +56,7 @@ describe("provider utilities", () => {
   it("explains Volcano quota and safe experience limit errors in Chinese", () => {
     const error = normalizeProviderError({
       providerId: "volcano",
-      presetId: "marketing-banner",
+      presetId: "promotion-poster",
       error: new Error(
         'Your account [2128552149] has reached the set inference limit for the [doubao-seedream-5-0] model, and the model service has been paused. To continue using this model, please visit the Model Activation page to adjust or close the "Safe Experience Mode". Request id: 021780578350584b06035fa747e8bc1f8854558f6030841ed3216'
       )

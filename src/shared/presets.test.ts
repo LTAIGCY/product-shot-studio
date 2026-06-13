@@ -5,10 +5,17 @@ describe("product shot presets", () => {
   it("defines the complete ecommerce output package", () => {
     expect(productShotPresets.map((preset) => preset.id)).toEqual([
       "white-main",
-      "lifestyle-scene",
-      "texture-detail",
-      "marketing-banner",
-      "product-poster"
+      "scene",
+      "selling-points",
+      "detail",
+      "size-params",
+      "function-analysis",
+      "multi-angle",
+      "person-usage",
+      "comparison",
+      "promotion-poster",
+      "detail-page-long",
+      "custom"
     ]);
   });
 
@@ -23,38 +30,76 @@ describe("product shot presets", () => {
     expect(prompt).toContain("Strictly preserve");
     expect(prompt).toContain("logo placement");
     expect(prompt).toContain("Do not redesign");
-    expect(prompt).toContain("Only change the background");
+    expect(prompt).toContain("Keep the product as the hero subject");
   });
 
-  it("adds seller product context and style direction without weakening source fidelity", () => {
+  it("uses the selected template prompt when the input box is empty", () => {
     const prompt = buildProductShotPrompt({
-      presetId: "lifestyle-scene",
+      presetId: "scene",
       fidelity: "strict",
-      productBrief: "matte black coffee tumbler for office commuters",
-      styleGuide: "warm kitchen light with premium minimalist props",
       aspectRatio: "4:5",
       outputFormat: "webp"
     });
 
-    expect(prompt).toContain("matte black coffee tumbler");
-    expect(prompt).toContain("warm kitchen light");
+    expect(prompt).toContain("高质量电商场景图");
     expect(prompt).toContain("source image is authoritative");
     expect(prompt).toContain("Strictly preserve");
   });
 
-  it("builds product poster prompts with seller-provided feature and ingredient copy", () => {
+  it("uses the input box content as the final prompt when provided", () => {
     const prompt = buildProductShotPrompt({
-      presetId: "product-poster",
+      presetId: "scene",
       fidelity: "strict",
-      productBrief: "children's plush teddy bear gift set",
-      posterCopy: "soft touch fabric, removable clothing, suitable for bedroom decoration, comfort companion",
+      productBrief: "霜感黑色咖啡杯，适合通勤办公，画面需要暖色厨房光线",
+      aspectRatio: "4:5",
+      outputFormat: "webp"
+    });
+
+    expect(prompt).toContain("霜感黑色咖啡杯");
+    expect(prompt).not.toContain("高质量电商场景图");
+    expect(prompt).toContain("Strictly preserve");
+  });
+
+  it("does not inject a fixed template prompt for custom generation", () => {
+    const prompt = buildProductShotPrompt({
+      presetId: "custom",
+      fidelity: "strict",
+      productBrief: "自定义生成一张冷色调科技感产品图",
       aspectRatio: "4:5",
       outputFormat: "png"
     });
 
-    expect(prompt).toContain("product information poster");
-    expect(prompt).toContain("soft touch fabric");
-    expect(prompt).toContain("ingredients, medical effects, certifications");
-    expect(prompt).toContain("Poster text must be large");
+    expect(prompt).toContain("自定义生成一张冷色调科技感产品图");
+    expect(prompt).not.toContain("白底主图");
+    expect(prompt).not.toContain("促销海报图");
+    expect(prompt).toContain("Aspect ratio: 4:5");
+  });
+
+  it("keeps long detail page prompts available to the provider", () => {
+    const prompt = buildProductShotPrompt({
+      presetId: "detail-page-long",
+      fidelity: "strict",
+      aspectRatio: "3:2",
+      outputFormat: "png"
+    });
+
+    expect(prompt).toContain("商品详情页长图");
+    expect(prompt).toContain("顶部主视觉海报");
+    expect(prompt).toContain("Output format preference: png");
+  });
+
+  it("uses the updated promotion poster prompt without false discount claims", () => {
+    const prompt = buildProductShotPrompt({
+      presetId: "promotion-poster",
+      fidelity: "strict",
+      aspectRatio: "4:5",
+      outputFormat: "png"
+    });
+
+    expect(prompt).toContain("高质量电商视觉海报");
+    expect(prompt).toContain("不要添加虚假价格");
+    expect(prompt).toContain("限时活动");
+    expect(prompt).not.toContain("活动主题");
+    expect(prompt).not.toContain("优惠信息");
   });
 });

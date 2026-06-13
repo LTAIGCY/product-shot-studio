@@ -87,6 +87,9 @@ export class ProductShotService {
           outputDir,
           sourceMimeType: this.getSourceMimeType(request.sourceImagePath)
         });
+        if (results.length !== request.outputCount) {
+          throw new Error(`模型仅返回 ${results.length}/${request.outputCount} 张图片，未达到本次选择的张数。`);
+        }
         if (this.isCanceled(job)) {
           onProgress({ jobId: job.id, presetId, status: "canceled", message: "Canceled" });
           return;
