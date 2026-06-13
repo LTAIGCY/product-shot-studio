@@ -1,5 +1,14 @@
 ﻿import { useEffect, useMemo, useState } from "react";
-import { useRef, type PointerEvent, type WheelEvent } from "react";
+import {
+  Children,
+  useRef,
+  type CSSProperties,
+  type DragEvent,
+  type MouseEvent,
+  type PointerEvent,
+  type ReactNode,
+  type WheelEvent
+} from "react";
 import {
   AlertCircle,
   Check,
@@ -10,16 +19,19 @@ import {
   Download,
   Edit3,
   FolderOpen,
+  GripVertical,
   HelpCircle,
   History,
   ImagePlus,
   KeyRound,
+  LayoutGrid,
   Loader2,
   LogOut,
   Megaphone,
   Play,
   QrCode,
   RotateCcw,
+  Rows2,
   Save,
   Settings,
   Sparkles,
@@ -35,6 +47,13 @@ import {
 } from "lucide-react";
 import { productShotPresets } from "@shared/presets";
 import { providerConfigs, providerOrder } from "@shared/providers";
+import {
+  getAllowedVideoAspectRatio,
+  getAllowedVideoDuration,
+  getDefaultVideoModelId,
+  getVideoModelMeta,
+  getVideoModelsForProvider
+} from "@shared/videoModels";
 import { updateAnnouncements } from "@shared/updateAnnouncements";
 import loginStudioIllustrationUrl from "../assets/login-studio-illustration.png";
 import tutorialApiConfigUrl from "../assets/tutorial-api-config.png";
@@ -61,10 +80,12 @@ import type {
   LocalAccountSummary,
   PresetId,
   ProductShotJob,
+  ProductShotResult,
   ProviderId,
   SecretStatus,
   StudioJob,
   VideoGenerationJob,
+  VideoModelMetadata,
   VideoProgress,
   VideoResolution,
   WalletSummary,
@@ -72,19 +93,52 @@ import type {
 } from "@shared/types";
 
 const aspectRatios: AspectRatio[] = ["1:1", "4:5", "16:9", "3:2"];
-const videoAspectRatios: AspectRatio[] = ["16:9", "9:16", "1:1", "4:5"];
-const videoResolutions: VideoResolution[] = ["720p", "1080p"];
 const exportFormats: ExportFormat[] = ["png", "jpg", "webp"];
 type AppPage = "image" | "video" | "personal" | "updates" | "settings";
 type PersonalCenterTab = "overview" | "history" | "recharge" | "transactions" | "trash";
 type StatusTone = "normal" | "warn";
 type ExportFeedback = "idle" | "running" | "done";
+type GenerateMode = "single" | "batch";
+type PreviewCompareLayout = "grid-2x2" | "grid-3x3" | "grid-4x4" | "custom" | "adaptive";
 type PreviewImage = {
   src: string;
   filePath?: string;
   title: string;
   subtitle?: string;
   fileName?: string;
+};
+type PreviewCompareItem = PreviewImage & {
+  id: string;
+};
+type PreviewViewState = {
+  zoom: number;
+  pan: { x: number; y: number };
+};
+type ProviderBrandMeta = {
+  mark: string;
+  shortName: string;
+  label: string;
+};
+type ImageModelOption = {
+  providerId: ProviderId;
+  modelId: string;
+  displayName: string;
+};
+type WorkspaceLayoutSize = {
+  splitPercent: number;
+  resultHeight: number;
+};
+type WorkspaceLayoutKind = "image" | "video";
+
+const providerBrandMeta: Record<ProviderId, ProviderBrandMeta> = {
+  aliyun: { mark: "百", shortName: "Ali", label: "阿里百炼" },
+  volcano: { mark: "火", shortName: "Ark", label: "火山方舟" },
+  tencent: { mark: "混", shortName: "Hun", label: "腾讯混元" }
+};
+
+const defaultPreviewViewState: PreviewViewState = {
+  zoom: 1,
+  pan: { x: 0, y: 0 }
 };
 
 const uiText = {
@@ -106,18 +160,13 @@ const uiText = {
   openKeyPage: "\u6253\u5f00\u83b7\u53d6\u5bc6\u94a5\u9875\u9762",
   providerTerms: "\u670d\u52a1\u6761\u6b3e",
   output: "\u8f93\u51fa",
-  customModelId: "\u6a21\u578b / \u63a5\u5165\u70b9 ID",
-  customModelHint: "\u5982\u679c\u8d26\u53f7\u53ea\u5f00\u901a\u4e86\u7279\u5b9a\u8c46\u5305\u6a21\u578b\uff0c\u5728\u8fd9\u91cc\u7c98\u8d34\u63a7\u5236\u53f0\u663e\u793a\u7684 ID\u3002",
-  outputCount: "\u6bcf\u7c7b\u5f20\u6570",
-  customAspectRatio: "\u624b\u8f93\u6bd4\u4f8b",
+  outputCount: "\u5f20\u6570",
+  customAspectRatio: "\u6bd4\u4f8b",
   outputFormat: "\u56fe\u7247\u683c\u5f0f",
   videoModel: "\u89c6\u9891\u6a21\u578b",
-  videoPrompt: "\u89c6\u9891\u8981\u6c42",
+  videoPrompt: "输入提示词",
   videoPromptPlaceholder: "\u4f8b\u5982\uff1a\u4ea7\u54c1\u6162\u901f\u65cb\u8f6c\uff0c\u67d4\u548c\u5f71\u68da\u5149\uff0c\u5e72\u51c0\u9ad8\u7ea7\u80cc\u666f",
   videoDuration: "\u89c6\u9891\u65f6\u957f\uff08\u79d2\uff09",
-  videoResolution: "\u89c6\u9891\u6e05\u6670\u5ea6",
-  videoWatermark: "\u5e73\u53f0\u6c34\u5370",
-  videoAudio: "\u97f3\u6548",
   generateVideo: "\u751f\u6210\u89c6\u9891",
   generatingVideo: "\u6b63\u5728\u751f\u6210\u4ea7\u54c1\u89c6\u9891",
   videoComplete: "\u89c6\u9891\u751f\u6210\u5b8c\u6210",
@@ -302,7 +351,8 @@ const apiKeyGuides: Record<ProviderId, string[]> = {
   tencent: [
     "\u767b\u5f55\u817e\u8baf\u4e91\u63a7\u5236\u53f0\uff0c\u8fdb\u5165\u8bbf\u95ee\u5bc6\u94a5\u9875\u9762\u3002",
     "\u590d\u5236 SecretId \u548c SecretKey\u3002",
-    "\u6309 SecretId:SecretKey \u683c\u5f0f\u7c98\u8d34\u4fdd\u5b58\uff0c\u5e76\u786e\u8ba4\u6df7\u5143\u751f\u56fe\u5df2\u5f00\u901a\u3002"
+    "\u6309 SecretId:SecretKey \u683c\u5f0f\u7c98\u8d34\u4fdd\u5b58\uff0c\u5e76\u786e\u8ba4\u6df7\u5143\u751f\u56fe\u5df2\u5f00\u901a\u3002",
+    "如需腾讯云点播 AIGC 生视频，请在设置页填写 VOD SubAppId。"
   ]
 };
 
@@ -321,32 +371,29 @@ const qualityLabels: Record<ImageQuality, string> = {
   ultra: "\u8d85\u6e05"
 };
 
-const presetLabels: Record<PresetId, { name: string; description: string }> = {
-  "white-main": {
-    name: "\u767d\u5e95\u4e3b\u56fe",
-    description: "\u5e72\u51c0\u767d\u5e95\u4e0e\u81ea\u7136\u9634\u5f71\uff0c\u9002\u5408\u7535\u5546\u4e3b\u56fe"
-  },
-  "lifestyle-scene": {
-    name: "\u751f\u6d3b\u573a\u666f\u56fe",
-    description: "\u771f\u5b9e\u4f7f\u7528\u73af\u5883\u4e0e\u5546\u4e1a\u6444\u5f71\u5e03\u5149"
-  },
-  "texture-detail": {
-    name: "\u8d28\u611f\u7279\u5199\u56fe",
-    description: "\u7a81\u51fa\u6750\u8d28\u3001\u5de5\u827a\u548c\u7ec6\u8282\u8d28\u611f"
-  },
-  "marketing-banner": {
-    name: "\u8425\u9500\u6a2a\u56fe",
-    description: "\u9002\u5408\u5e97\u94fa\u5934\u56fe\u3001\u6d3b\u52a8\u9875\u548c\u5e7f\u544a\u6a2a\u5e45"
-  },
-  "product-poster": {
-    name: "\u5546\u54c1\u6d77\u62a5",
-    description: "\u5c55\u793a\u529f\u80fd\u3001\u6210\u5206\u3001\u6548\u679c\u548c\u6838\u5fc3\u5356\u70b9"
-  }
-};
+const presetLabels = Object.fromEntries(
+  productShotPresets.map((preset) => [
+    preset.id,
+    {
+      name: preset.name,
+      description: preset.description
+    }
+  ])
+) as Record<PresetId, { name: string; description: string }>;
 
 const modelSelectionStorageKeys = {
   providerId: "productStudio.providerId",
   modelId: (providerId: ProviderId) => `productStudio.modelId.${providerId}`
+};
+const exportFormatStorageKey = "productStudio.exportFormat";
+const tencentVodSubAppIdStorageKey = "productStudio.tencentVodSubAppId";
+const workspaceLayoutStorageKeys: Record<WorkspaceLayoutKind, string> = {
+  image: "productStudio.layout.image",
+  video: "productStudio.layout.video"
+};
+const defaultWorkspaceLayouts: Record<WorkspaceLayoutKind, WorkspaceLayoutSize> = {
+  image: { splitPercent: 48, resultHeight: 230 },
+  video: { splitPercent: 42, resultHeight: 240 }
 };
 
 function readInitialModelSelection(): { providerId: ProviderId; modelId: string } {
@@ -362,11 +409,39 @@ function readSavedModelId(providerId: ProviderId): string {
   return localStorage.getItem(modelSelectionStorageKeys.modelId(providerId)) || providerConfigs[providerId].defaultModel;
 }
 
+function readSavedExportFormat(): ExportFormat {
+  const savedFormat = localStorage.getItem(exportFormatStorageKey);
+  return exportFormats.includes(savedFormat as ExportFormat) ? (savedFormat as ExportFormat) : "png";
+}
+
+function readSavedTencentVodSubAppId(): string {
+  return localStorage.getItem(tencentVodSubAppIdStorageKey) ?? "";
+}
+
+function readWorkspaceLayout(kind: WorkspaceLayoutKind): WorkspaceLayoutSize {
+  const fallback = defaultWorkspaceLayouts[kind];
+  const raw = localStorage.getItem(workspaceLayoutStorageKeys[kind]);
+  if (!raw) return fallback;
+  try {
+    const parsed = JSON.parse(raw) as Partial<WorkspaceLayoutSize>;
+    return clampWorkspaceLayout({
+      splitPercent: Number(parsed.splitPercent) || fallback.splitPercent,
+      resultHeight: Number(parsed.resultHeight) || fallback.resultHeight
+    });
+  } catch {
+    return fallback;
+  }
+}
+
 function persistModelSelection(providerId: ProviderId, modelId: string) {
   localStorage.setItem(modelSelectionStorageKeys.providerId, providerId);
   if (modelId) {
     localStorage.setItem(modelSelectionStorageKeys.modelId(providerId), modelId);
   }
+}
+
+function persistWorkspaceLayout(kind: WorkspaceLayoutKind, layout: WorkspaceLayoutSize) {
+  localStorage.setItem(workspaceLayoutStorageKeys[kind], JSON.stringify(clampWorkspaceLayout(layout)));
 }
 
 export function App() {
@@ -380,14 +455,10 @@ export function App() {
   const [keyStatus, setKeyStatus] = useState<SecretStatus[]>([]);
   const [providerId, setProviderId] = useState<ProviderId>(initialModelSelection.providerId);
   const [modelId, setModelId] = useState(initialModelSelection.modelId);
-  const [selectedPresets, setSelectedPresets] = useState<PresetId[]>(
-    productShotPresets.map((preset) => preset.id)
-  );
+  const [selectedPresets, setSelectedPresets] = useState<PresetId[]>(["white-main"]);
   const [productBrief, setProductBrief] = useState("");
-  const [styleGuide, setStyleGuide] = useState("");
-  const [posterCopy, setPosterCopy] = useState("");
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("1:1");
-  const [exportFormat, setExportFormat] = useState<ExportFormat>("png");
+  const [exportFormat, setExportFormatState] = useState<ExportFormat>(() => readSavedExportFormat());
   const [quality, setQuality] = useState<ImageQuality>("standard");
   const [outputCount, setOutputCount] = useState(1);
   const [videoProviderId, setVideoProviderId] = useState<ProviderId>("aliyun");
@@ -395,14 +466,15 @@ export function App() {
   const [videoPrompt, setVideoPrompt] = useState("");
   const [videoAspectRatio, setVideoAspectRatio] = useState<AspectRatio>("16:9");
   const [videoDurationSeconds, setVideoDurationSeconds] = useState(5);
-  const [videoResolution, setVideoResolution] = useState<VideoResolution>("720p");
-  const [videoWatermark, setVideoWatermark] = useState(false);
-  const [videoAudio, setVideoAudio] = useState(false);
+  const [tencentVodSubAppId, setTencentVodSubAppId] = useState(() => readSavedTencentVodSubAppId());
+  const [imageWorkspaceLayout, setImageWorkspaceLayout] = useState(() => readWorkspaceLayout("image"));
+  const [videoWorkspaceLayout, setVideoWorkspaceLayout] = useState(() => readWorkspaceLayout("video"));
   const [importedImages, setImportedImages] = useState<ImportedImage[]>([]);
   const [activeImagePath, setActiveImagePath] = useState<string | null>(null);
   const [history, setHistory] = useState<StudioJob[]>([]);
   const [trashedHistory, setTrashedHistory] = useState<StudioJob[]>([]);
   const [activeJob, setActiveJob] = useState<ProductShotJob | null>(null);
+  const [sessionImageResults, setSessionImageResults] = useState<ProductShotResult[]>([]);
   const [activeVideoJob, setActiveVideoJob] = useState<VideoGenerationJob | null>(null);
   const [progress, setProgress] = useState<Partial<Record<PresetId, GenerateProgress>>>({});
   const [videoProgress, setVideoProgress] = useState<VideoProgress | null>(null);
@@ -417,13 +489,35 @@ export function App() {
   const [dragActive, setDragActive] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
+  const [pendingGenerateMode, setPendingGenerateMode] = useState<GenerateMode | null>(null);
   const [defaultExportDir, setDefaultExportDir] = useState("");
   const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null);
   const [modelSectionCollapsed, setModelSectionCollapsed] = useState(false);
 
+  function updateExportFormat(format: ExportFormat) {
+    setExportFormatState(format);
+    localStorage.setItem(exportFormatStorageKey, format);
+  }
+
+  function updateTencentVodSubAppId(value: string) {
+    setTencentVodSubAppId(value);
+    localStorage.setItem(tencentVodSubAppIdStorageKey, value.trim());
+  }
+
+  function updateImageWorkspaceLayout(layout: WorkspaceLayoutSize) {
+    const clamped = clampWorkspaceLayout(layout);
+    setImageWorkspaceLayout(clamped);
+    persistWorkspaceLayout("image", clamped);
+  }
+
+  function updateVideoWorkspaceLayout(layout: WorkspaceLayoutSize) {
+    const clamped = clampWorkspaceLayout(layout);
+    setVideoWorkspaceLayout(clamped);
+    persistWorkspaceLayout("video", clamped);
+  }
+
   const configuredProvider = keyStatus.find((item) => item.providerId === providerId)?.configured ?? false;
-  const currentProvider = providerConfigs[providerId];
-  const results = activeJob?.results ?? [];
+  const results = sessionImageResults;
   const failedPresetIds = useMemo(() => getFailedPresetIds(activeJob), [activeJob]);
   const canRetryFailed = Boolean(activeJob && failedPresetIds.length > 0 && !isGenerating);
   const activeImage = importedImages.find((image) => image.sourceImagePath === activeImagePath) ?? importedImages[0] ?? null;
@@ -436,8 +530,6 @@ export function App() {
       fidelity: "strict" as const,
       quality,
       productBrief: productBrief.trim() || undefined,
-      styleGuide: styleGuide.trim() || undefined,
-      posterCopy: posterCopy.trim() || undefined,
       outputCount,
       aspectRatio,
       exportFormat
@@ -449,8 +541,6 @@ export function App() {
       selectedPresets,
       quality,
       productBrief,
-      styleGuide,
-      posterCopy,
       outputCount,
       aspectRatio,
       exportFormat
@@ -459,39 +549,53 @@ export function App() {
   const estimatedCostCents = estimateRequestCostCents(estimateRequest);
   const unitPriceCents = getUnitPriceCents({ providerId, modelId, quality });
   const hasEnoughBalance = (walletSummary?.balanceCents ?? 0) >= estimatedCostCents;
+  const singleOutputTotal = selectedPresets.length * outputCount;
   const batchCostCents = estimatedCostCents * importedImages.length;
+  const batchOutputTotal = importedImages.length * singleOutputTotal;
   const hasEnoughBatchBalance = (walletSummary?.balanceCents ?? 0) >= batchCostCents;
+  const videoModelOptions = useMemo(() => getVideoModelOptions(videoProviderId, videoModelId), [videoProviderId, videoModelId]);
+  const selectedVideoModel = useMemo(
+    () => getVideoModelMeta(videoProviderId, videoModelId) ?? videoModelOptions[0] ?? null,
+    [videoProviderId, videoModelId, videoModelOptions]
+  );
+  const videoAspectRatioOptions = selectedVideoModel?.aspectRatios ?? [];
+  const videoDurationOptions = selectedVideoModel?.durations ?? [];
+  const hiddenVideoResolution = getDefaultHiddenVideoResolution(selectedVideoModel);
   const videoEstimateRequest = useMemo(
     () => ({
       sourceImagePath: activeImage?.sourceImagePath ?? "",
       providerId: videoProviderId,
       modelId: videoModelId,
+      tencentVodSubAppId,
       prompt: videoPrompt,
       aspectRatio: videoAspectRatio,
       durationSeconds: videoDurationSeconds,
-      resolution: videoResolution,
-      watermark: videoWatermark,
-      enableAudio: videoAudio
+      resolution: hiddenVideoResolution,
+      watermark: false,
+      enableAudio: false
     }),
     [
       activeImage?.sourceImagePath,
       videoProviderId,
       videoModelId,
+      tencentVodSubAppId,
       videoPrompt,
       videoAspectRatio,
       videoDurationSeconds,
-      videoResolution,
-      videoWatermark,
-      videoAudio
+      hiddenVideoResolution
     ]
   );
   const estimatedVideoCostCents = estimateVideoRequestCostCents(videoEstimateRequest);
   const videoProviderConfigured = keyStatus.find((item) => item.providerId === videoProviderId)?.configured ?? false;
-  const videoSupported = videoProviderId === "aliyun" || videoProviderId === "volcano";
+  const videoSupported = Boolean(selectedVideoModel?.supportsImageToVideo);
+  const videoSetupWarning = !videoSupported
+    ? uiText.videoUnsupported
+    : videoProviderId === "tencent" && !tencentVodSubAppId.trim()
+      ? "腾讯云点播 AIGC 生视频需要先在设置中填写 SubAppId。"
+      : "";
   const hasEnoughVideoBalance = (walletSummary?.balanceCents ?? 0) >= estimatedVideoCostCents;
   const videoResults = activeVideoJob?.results ?? [];
-  const modelOptions = useMemo(() => getProviderModelOptions(providerId, modelId), [providerId, modelId]);
-  const videoModelOptions = useMemo(() => getVideoModelOptions(videoProviderId, videoModelId), [videoProviderId, videoModelId]);
+  const modelOptions = useMemo(() => getImageModelOptions(providerId, modelId), [providerId, modelId]);
   const isExporting = exportFeedback === "running";
   const showActivityProgress = isRefreshing || exportFeedback !== "idle";
   const canGenerate = Boolean(
@@ -501,35 +605,79 @@ export function App() {
     importedImages.length > 0 && configuredProvider && selectedPresets.length > 0 && !isGenerating && hasEnoughBatchBalance
   );
   const canGenerateVideo = Boolean(
-    activeImage && videoProviderConfigured && videoSupported && !isGeneratingVideo && hasEnoughVideoBalance
+    activeImage &&
+      videoProviderConfigured &&
+      videoSupported &&
+      !videoSetupWarning &&
+      !isGeneratingVideo &&
+      hasEnoughVideoBalance
   );
-  const activeJobMatchesActiveImage = Boolean(activeImage && activeJob?.request.sourceImagePath === activeImage.sourceImagePath);
-  const workflowResultCount = activeJobMatchesActiveImage ? results.length : 0;
+  const workflowResultCount = results.length;
   const hasCurrentWork = Boolean(activeImage);
   const workflowSteps = useMemo(
     () => [
       {
         label: uiText.workflowImport,
+        description: "上传商品图，支持拖拽或批量导入",
         done: hasCurrentWork,
         active: !hasCurrentWork
       },
       {
         label: uiText.workflowConfigure,
+        description: "选择模型与生成参数",
         done: hasCurrentWork && configuredProvider && selectedPresets.length > 0,
         active: hasCurrentWork && (!configuredProvider || selectedPresets.length === 0)
       },
       {
         label: uiText.workflowGenerate,
+        description: "AI 生成优质商品图",
         done: workflowResultCount > 0,
         active: hasCurrentWork && configuredProvider && selectedPresets.length > 0 && workflowResultCount === 0
       },
       {
         label: uiText.workflowExport,
+        description: "下载图片或专业素材",
         done: exportFeedback === "done",
         active: workflowResultCount > 0 && exportFeedback !== "done"
       }
     ],
     [configuredProvider, exportFeedback, hasCurrentWork, selectedPresets.length, workflowResultCount]
+  );
+  const videoWorkflowSteps = useMemo(
+    () => [
+      {
+        label: uiText.workflowImport,
+        description: "上传商品图，作为图生视频首帧参考",
+        done: hasCurrentWork,
+        active: !hasCurrentWork
+      },
+      {
+        label: uiText.workflowConfigure,
+        description: "选择视频模型、比例和时长",
+        done: hasCurrentWork && videoProviderConfigured && videoSupported && !videoSetupWarning,
+        active: hasCurrentWork && (!videoProviderConfigured || !videoSupported || Boolean(videoSetupWarning))
+      },
+      {
+        label: uiText.workflowGenerate,
+        description: "AI 生成商品视频",
+        done: videoResults.length > 0,
+        active: hasCurrentWork && videoProviderConfigured && videoSupported && !videoSetupWarning && videoResults.length === 0
+      },
+      {
+        label: uiText.workflowExport,
+        description: "导出视频素材",
+        done: exportFeedback === "done",
+        active: videoResults.length > 0 && exportFeedback !== "done"
+      }
+    ],
+    [
+      exportFeedback,
+      hasCurrentWork,
+      videoProviderConfigured,
+      videoResults.length,
+      videoSetupWarning,
+      videoSupported
+    ]
   );
 
   useEffect(() => {
@@ -560,6 +708,26 @@ export function App() {
       disposeSettings();
     };
   }, []);
+
+  useEffect(() => {
+    if (getVideoModelMeta(videoProviderId, videoModelId)) return;
+    const nextModelId = getDefaultVideoModelId(videoProviderId);
+    if (nextModelId && nextModelId !== videoModelId) {
+      setVideoModelId(nextModelId);
+    }
+  }, [videoProviderId, videoModelId]);
+
+  useEffect(() => {
+    if (!selectedVideoModel) return;
+    const nextAspectRatio = getAllowedVideoAspectRatio(videoProviderId, selectedVideoModel.modelId, videoAspectRatio);
+    const nextDuration = getAllowedVideoDuration(videoProviderId, selectedVideoModel.modelId, videoDurationSeconds);
+    if (nextAspectRatio !== videoAspectRatio) {
+      setVideoAspectRatio(nextAspectRatio);
+    }
+    if (nextDuration !== videoDurationSeconds) {
+      setVideoDurationSeconds(nextDuration);
+    }
+  }, [selectedVideoModel, videoAspectRatio, videoDurationSeconds, videoProviderId]);
 
   async function bootstrapSession() {
     const [currentSession, remembered] = await Promise.all([
@@ -614,6 +782,11 @@ export function App() {
     setStatusTone(tone);
   }
 
+  function prependSessionResults(nextResults: ProductShotResult[]) {
+    if (nextResults.length === 0) return;
+    setSessionImageResults((current) => [...nextResults, ...current]);
+  }
+
   async function authenticate(mode: "login" | "signup", username: string, password: string) {
     const nextSession =
       mode === "login"
@@ -641,6 +814,7 @@ export function App() {
     setRememberedSession(null);
     setWalletSummary(null);
     setActiveJob(null);
+    setSessionImageResults([]);
     setActiveVideoJob(null);
     setHistory([]);
     setTrashedHistory([]);
@@ -722,6 +896,7 @@ export function App() {
     try {
       const job = await window.productStudio.generateProductShots(buildGenerateRequest(activeImage));
       setActiveJob(job);
+      prependSessionResults(job.results);
       await refreshAfterGeneration();
       showStatus(resolveGenerationStatusText(job));
     } catch (error) {
@@ -729,6 +904,28 @@ export function App() {
     } finally {
       setIsGenerating(false);
       setCurrentJobId(null);
+    }
+  }
+
+  function confirmGenerate() {
+    if (!canGenerate) return;
+    setPendingGenerateMode("single");
+  }
+
+  function confirmBatchGenerate() {
+    if (!canBatchGenerate) return;
+    setPendingGenerateMode("batch");
+  }
+
+  function runPendingGeneration() {
+    const mode = pendingGenerateMode;
+    setPendingGenerateMode(null);
+    if (mode === "single") {
+      void generate();
+      return;
+    }
+    if (mode === "batch") {
+      void batchGenerate();
     }
   }
 
@@ -745,6 +942,7 @@ export function App() {
         setActiveImagePath(image.sourceImagePath);
         showStatus(`${uiText.batchGenerating} ${index + 1}/${importedImages.length}`);
         latestJob = await window.productStudio.generateProductShots(buildGenerateRequest(image));
+        prependSessionResults(latestJob.results);
       }
       if (latestJob) {
         setActiveJob(latestJob);
@@ -768,8 +966,6 @@ export function App() {
       fidelity: "strict" as const,
       quality,
       productBrief: productBrief.trim() || undefined,
-      styleGuide: styleGuide.trim() || undefined,
-      posterCopy: posterCopy.trim() || undefined,
       outputCount,
       aspectRatio,
       exportFormat
@@ -797,6 +993,7 @@ export function App() {
     try {
       const job = await window.productStudio.generateProductShots(request);
       setActiveJob(job);
+      prependSessionResults(job.results);
       await refreshAfterGeneration();
       showStatus(resolveGenerationStatusText(job));
     } catch (error) {
@@ -828,12 +1025,13 @@ export function App() {
         sourceImagePath: activeImage.sourceImagePath,
         providerId: videoProviderId,
         modelId: videoModelId,
+        tencentVodSubAppId,
         prompt: videoPrompt.trim(),
         aspectRatio: videoAspectRatio,
         durationSeconds: videoDurationSeconds,
-        resolution: videoResolution,
-        watermark: videoWatermark,
-        enableAudio: videoAudio
+        resolution: hiddenVideoResolution,
+        watermark: false,
+        enableAudio: false
       });
       setActiveVideoJob(job);
       await refreshAfterGeneration();
@@ -955,23 +1153,18 @@ export function App() {
     showStatus(`${uiText.defaultExportFolder} ${folder}`);
   }
 
-  function togglePreset(presetId: PresetId) {
-    setSelectedPresets((current) =>
-      current.includes(presetId) ? current.filter((item) => item !== presetId) : [...current, presetId]
-    );
+  function selectPreset(presetId: PresetId) {
+    setSelectedPresets([presetId]);
+    const preset = productShotPresets.find((item) => item.id === presetId);
+    if (preset && preset.prompt) {
+      setProductBrief(preset.prompt);
+    }
   }
 
-  function selectProvider(id: ProviderId) {
-    const nextModelId = readSavedModelId(id);
-    setProviderId(id);
-    setModelId(nextModelId);
-    persistModelSelection(id, nextModelId);
-  }
-
-  function updateModelId(nextModelId: string) {
-    const normalizedModelId = nextModelId.trim();
-    setModelId(normalizedModelId);
-    persistModelSelection(providerId, normalizedModelId);
+  function selectImageModel(option: ImageModelOption) {
+    setProviderId(option.providerId);
+    setModelId(option.modelId);
+    persistModelSelection(option.providerId, option.modelId);
   }
 
   function toggleModelSection() {
@@ -994,9 +1187,6 @@ export function App() {
     setVideoPrompt(job.request.prompt);
     setVideoAspectRatio(job.request.aspectRatio);
     setVideoDurationSeconds(job.request.durationSeconds);
-    setVideoResolution(job.request.resolution);
-    setVideoWatermark(job.request.watermark);
-    setVideoAudio(job.request.enableAudio);
   }
 
   function syncFormFromJob(job: ProductShotJob) {
@@ -1006,13 +1196,12 @@ export function App() {
       setModelId(nextModelId);
       persistModelSelection(job.request.providerId, nextModelId);
     }
-    setSelectedPresets(job.request.presetIds);
-    setProductBrief(job.request.productBrief ?? "");
-    setStyleGuide(job.request.styleGuide ?? "");
-    setPosterCopy(job.request.posterCopy ?? "");
+    const restoredPreset = job.request.presetIds.find(isPresetId) ?? "white-main";
+    setSelectedPresets([restoredPreset]);
+    setProductBrief(mergeLegacyPromptFields(job.request.productBrief, job.request.styleGuide, job.request.posterCopy));
     setQuality(job.request.quality ?? "standard");
     setAspectRatio(job.request.aspectRatio);
-    setExportFormat(job.request.exportFormat);
+    updateExportFormat(job.request.exportFormat);
     setOutputCount(clampOutputCount(job.request.outputCount));
   }
 
@@ -1048,50 +1237,33 @@ export function App() {
       </div>
       {modelSectionCollapsed ? (
         <button className="model-collapsed-card" onClick={toggleModelSection}>
-          <span>{currentProvider.displayName}</span>
-          <strong>{getModelDisplayName(providerId, modelId)}</strong>
-          <small>{modelId}</small>
+          <ProviderLogo providerId={providerId} />
+          <span className="model-collapsed-copy">
+            <strong>{getModelDisplayName(providerId, modelId)}</strong>
+          </span>
         </button>
       ) : (
-        <>
-          <div className="provider-list compact-provider-list">
-            {providerOrder.map((id) => {
-              const configured = keyStatus.find((item) => item.providerId === id)?.configured;
+        <div className="model-picker compact-model-picker model-picker-unified">
+          <div className="model-option-list">
+            {modelOptions.map((option) => {
+              const active = providerId === option.providerId && modelId === option.modelId;
+              const configured = keyStatus.find((item) => item.providerId === option.providerId)?.configured;
               return (
                 <button
-                  key={id}
-                  className={`provider-button ${providerId === id ? "active" : ""}`}
-                  onClick={() => selectProvider(id)}
+                  key={`${option.providerId}:${option.modelId}`}
+                  className={active ? "active" : ""}
+                  onClick={() => selectImageModel(option)}
                 >
-                  <span>{providerConfigs[id].displayName}</span>
-                  {configured ? <Check size={16} /> : <KeyRound size={16} />}
+                  <ProviderLogo providerId={option.providerId} compact />
+                  <span className="model-option-copy">
+                    <strong>{option.displayName}</strong>
+                  </span>
+                  {configured ? <Check size={15} /> : <KeyRound size={15} />}
                 </button>
               );
             })}
           </div>
-          <div className="model-picker compact-model-picker">
-            <div className="model-option-list">
-              {modelOptions.map((option) => (
-                <button
-                  key={option.modelId}
-                  className={modelId === option.modelId ? "active" : ""}
-                  onClick={() => updateModelId(option.modelId)}
-                >
-                  <strong>{option.displayName}</strong>
-                  <span>{option.modelId}</span>
-                </button>
-              ))}
-            </div>
-            <label>
-              <span>{uiText.customModelId}</span>
-              <input
-                value={modelId}
-                spellCheck={false}
-                onChange={(event) => updateModelId(event.target.value)}
-              />
-            </label>
-          </div>
-        </>
+        </div>
       )}
     </section>
   );
@@ -1124,303 +1296,286 @@ export function App() {
           onLogout={() => void logout()}
         />
         {activePage === "image" ? (
-      <main className="workspace image-workspace-page">
-        <header className="top-bar">
-          <div>
-            <h2>{uiText.packageTitle}</h2>
-            <p>
-              {configuredProvider ? `${currentProvider.displayName} ${uiText.configured}` : uiText.configureKeyFirst}
-              {" / "}
-              {getModelDisplayName(providerId, modelId)}
-              {" / "}
-              {uiText.unitPrice} {formatUsdCents(unitPriceCents)}
-              {" / "}
-              {uiText.estimatedCost} {formatUsdCents(estimatedCostCents)}
-              {importedImages.length > 1 ? ` / ${uiText.batchGenerate} ${formatUsdCents(batchCostCents)}` : ""}
-              {!hasEnoughBalance ? ` / ${uiText.insufficientBalance}` : ""}
-            </p>
-          </div>
-          <div className="top-actions">
-            {canRetryFailed ? (
-              <button className="secondary-button" onClick={() => void retryFailed()}>
-                <RotateCcw size={17} />
-                {uiText.retryFailed}
-              </button>
-            ) : null}
-            {isGenerating ? (
-              <button className="secondary-button" onClick={() => void cancelGeneration()} disabled={!currentJobId}>
-                <Square size={15} />
-                {uiText.cancel}
-              </button>
-            ) : null}
-            <button className="secondary-button" onClick={() => void batchGenerate()} disabled={!canBatchGenerate}>
-              <Sparkles size={17} />
-              {uiText.batchGenerate}
-            </button>
-            <button className="primary-button" onClick={generate} disabled={!canGenerate}>
-              {isGenerating ? <Loader2 className="spin" size={18} /> : <Play size={18} />}
-              {uiText.generate}
-            </button>
-          </div>
-        </header>
-
-        <div className="image-page-grid">
-          <div className="image-main-column">
-            <WorkflowRibbon steps={workflowSteps} busy={isGenerating || isExporting} />
-
-        <div className="main-grid">
-          <section
-            className={`upload-surface ${dragActive ? "drag-active" : ""} ${activeImage ? "has-image" : "is-empty"}`}
-            onDragEnter={(event) => {
-              event.preventDefault();
-              setDragActive(true);
-            }}
-            onDragOver={(event) => {
-              event.preventDefault();
-              setDragActive(true);
-            }}
-            onDragLeave={(event) => {
-              event.preventDefault();
-              setDragActive(false);
-            }}
-            onDrop={(event) => {
-              event.preventDefault();
-              setDragActive(false);
-              void handleFiles(event.dataTransfer.files);
-            }}
-          >
-            {activeImage ? (
-              <div className="image-workbench">
-                <button
-                  className="image-preview-button"
-                  onClick={() => void selectImages()}
-                  title={uiText.clickImageToAdd}
-                >
-                  <img src={activeImage.previewDataUrl} alt="Imported product" />
-                </button>
-                <div className="image-toolbar">
-                  <span>{importedImages.length} {uiText.imagesCount}</span>
-                  <button
-                    className="secondary-button"
-                    onClick={() =>
-                      setPreviewImage({
-                        src: activeImage.previewDataUrl,
-                        filePath: activeImage.sourceImagePath,
-                        title: uiText.selectImage,
-                        subtitle: `${activeImage.dimensions.width} x ${activeImage.dimensions.height}`,
-                        fileName: "source-product.png"
-                      })
-                    }
-                  >
-                    <ZoomIn size={16} />
-                    {uiText.previewCurrentImage}
-                  </button>
-                  <button className="secondary-button" onClick={() => void selectImages()}>
-                    <Upload size={17} />
-                    {uiText.addImages}
-                  </button>
-                  <button className="secondary-button" onClick={clearImages}>
-                    <Trash2 size={16} />
-                    {uiText.clearImages}
-                  </button>
+          <main className="workspace image-workspace-page">
+            <div className="studio-board">
+              <header className="top-bar studio-command-bar">
+                <div className="studio-heading">
+                  <div className="studio-title-line">
+                    <h2>{uiText.packageTitle}</h2>
+                    <span>{getModelDisplayName(providerId, modelId)}</span>
+                  </div>
+                  <p>
+                    {configuredProvider ? `${uiText.model} ${uiText.configured}` : uiText.configureKeyFirst}
+                    {" | "}
+                    {getModelDisplayName(providerId, modelId)}
+                    {" | "}
+                    {uiText.unitPrice} {formatUsdCents(unitPriceCents)}
+                    {!hasEnoughBalance ? ` | ${uiText.insufficientBalance}` : ""}
+                  </p>
                 </div>
-                <div className="image-queue">
-                  {importedImages.map((image, index) => (
-                    <button
-                      key={image.sourceImagePath}
-                      className={image.sourceImagePath === activeImage.sourceImagePath ? "active" : ""}
-                      onClick={() => setActiveImagePath(image.sourceImagePath)}
-                    >
-                      <img src={image.previewDataUrl} alt={`Product ${index + 1}`} />
-                      <span>{index + 1}</span>
-                      <i
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          deleteImage(image.sourceImagePath);
-                        }}
-                        title={uiText.deleteImage}
-                      >
-                        <X size={13} />
-                      </i>
+                <div className="top-actions">
+                  {canRetryFailed ? (
+                    <button className="secondary-button" onClick={() => void retryFailed()}>
+                      <RotateCcw size={17} />
+                      {uiText.retryFailed}
                     </button>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <div className="upload-empty">
-                <button className="upload-empty-visual" onClick={() => void selectImages()}>
-                  <img src={workflowStudioIllustrationUrl} alt="" />
-                  <div className="upload-empty-action">
-                    <ImagePlus size={28} />
-                  </div>
-                </button>
-                <p>{uiText.clickOrDragUpload}</p>
-                <button className="secondary-button" onClick={() => void selectImages()}>
-                  <Upload size={17} />
-                  {uiText.addImages}
-                </button>
-              </div>
-            )}
-          </section>
-
-          <section className="preset-panel">
-            {imageModelControls}
-            <section className="embedded-output-panel">
-              <div className="section-title">
-                <span>{uiText.output}</span>
-              </div>
-              <div className="output-config-grid">
-                <div className="output-config-field output-ratio-field">
-                  <span>{uiText.customAspectRatio}</span>
-                  <SegmentedControl items={aspectRatios} value={aspectRatio} onChange={setAspectRatio} />
-                  <input
-                    value={aspectRatio}
-                    placeholder="1:1"
-                    onChange={(event) => setAspectRatio(event.target.value)}
-                  />
-                </div>
-                <div className="output-config-field">
-                  <span>{uiText.outputFormat}</span>
-                  <SegmentedControl items={exportFormats} value={exportFormat} onChange={setExportFormat} />
-                </div>
-                <div className="output-config-field output-quality-field">
-                  <span>{uiText.quality}</span>
-                  <div>
-                    {imageQualities.map((item) => (
-                      <button
-                        key={item.id}
-                        className={quality === item.id ? "active" : ""}
-                        onClick={() => setQuality(item.id)}
-                      >
-                        {qualityLabels[item.id]}
-                        <small>{formatUsdCents(getUnitPriceCents({ providerId, modelId, quality: item.id }))}</small>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <label className="output-config-field output-count-field">
-                  <span>{uiText.outputCount}</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={4}
-                    value={outputCount}
-                    onChange={(event) => setOutputCount(clampOutputCount(Number(event.target.value)))}
-                  />
-                </label>
-              </div>
-            </section>
-            <div className="section-title">
-              <span>{uiText.presets}</span>
-            </div>
-            <div className="brief-form">
-              <label>
-                <span>{uiText.productBrief}</span>
-                <textarea
-                  value={productBrief}
-                  maxLength={800}
-                  placeholder={uiText.productBriefPlaceholder}
-                  onChange={(event) => setProductBrief(event.target.value)}
-                />
-              </label>
-              <label>
-                <span>{uiText.styleGuide}</span>
-                <textarea
-                  value={styleGuide}
-                  maxLength={800}
-                  placeholder={uiText.styleGuidePlaceholder}
-                  onChange={(event) => setStyleGuide(event.target.value)}
-                />
-              </label>
-              <label className="poster-copy-field">
-                <span>{uiText.posterCopy}</span>
-                <textarea
-                  value={posterCopy}
-                  maxLength={1200}
-                  placeholder={uiText.posterCopyPlaceholder}
-                  onChange={(event) => setPosterCopy(event.target.value)}
-                />
-              </label>
-            </div>
-            <div className="preset-list">
-              {presetProgress.map(({ preset, progress: item, selected }) => (
-                <button
-                  key={preset.id}
-                  className={`preset-item ${selected ? "selected" : ""} ${item?.status ? `progress-${item.status}` : ""}`}
-                  onClick={() => togglePreset(preset.id)}
-                  title={`${presetLabels[preset.id].name} - ${presetLabels[preset.id].description}`}
-                >
-                  <div>
-                    <strong>{presetLabels[preset.id].name}</strong>
-                    <span>{presetLabels[preset.id].description}</span>
-                  </div>
-                  <PresetState status={item?.status} />
-                </button>
-              ))}
-            </div>
-            <div className={`status-line ${statusTone === "warn" ? "warn" : ""}`}>
-              <span>{statusText || uiText.ready}</span>
-            </div>
-          </section>
-        </div>
-
-        <section className="result-band">
-          <div className="section-title">
-            <span>{uiText.results}</span>
-            <div className="section-actions">
-              {activeJob?.errors.length ? <span className="error-count">{activeJob.errors.length} {uiText.errors}</span> : null}
-              <button
-                className="secondary-button compact-button"
-                onClick={() => void exportAll()}
-                disabled={results.length === 0 || isExporting}
-              >
-                {isExporting ? <Loader2 className="spin" size={14} /> : <Download size={14} />}
-                {uiText.export}
-              </button>
-            </div>
-          </div>
-          {activeJob?.errors.length ? <FailurePanel job={activeJob} /> : null}
-          <div className="result-grid">
-            {results.length === 0 ? (
-              <div className="empty-results">{uiText.waitingResults}</div>
-            ) : (
-              results.map((result) => (
-                <figure key={`${result.presetId}-${result.imagePath}`} className="result-tile result-enter">
-                  <button
-                    className="result-image-button"
-                    onClick={() =>
-                      setPreviewImage({
-                        src: window.productStudio.toFileUrl(result.imagePath),
-                        filePath: result.imagePath,
-                        title: getPresetName(result.presetId),
-                        subtitle: `${uiText.usedModel}: ${getModelDisplayName(result.providerId, result.modelId)}`,
-                        fileName: `${result.presetId}-${result.modelId}.png`
-                      })
-                    }
-                  >
-                    <img src={window.productStudio.toFileUrl(result.imagePath)} alt={result.presetId} />
-                  </button>
-                  <figcaption>
-                    <span>{getPresetName(result.presetId)}</span>
-                    <small>{result.dimensions.width ? `${result.dimensions.width} x ${result.dimensions.height}` : result.modelId}</small>
-                    <button
-                      className="icon-button"
-                      onClick={() => void exportImagePaths([result.imagePath])}
-                      disabled={isExporting}
-                      title={uiText.export}
-                    >
-                      {isExporting ? <Loader2 className="spin" size={14} /> : <Download size={14} />}
+                  ) : null}
+                  {isGenerating ? (
+                    <button className="secondary-button" onClick={() => void cancelGeneration()} disabled={!currentJobId}>
+                      <Square size={15} />
+                      {uiText.cancel}
                     </button>
-                  </figcaption>
-                </figure>
-              ))
-            )}
-          </div>
-        </section>
-          </div>
+                  ) : null}
+                  <button className="secondary-button cost-action-button" onClick={confirmBatchGenerate} disabled={!canBatchGenerate}>
+                    <Sparkles size={17} />
+                    <span>{uiText.batchGenerate}（{batchOutputTotal}张）</span>
+                    <small>{formatUsdCents(batchCostCents)}</small>
+                  </button>
+                  <button className="primary-button generate-button cost-action-button" onClick={confirmGenerate} disabled={!canGenerate}>
+                    {isGenerating ? <Loader2 className="spin" size={18} /> : <Play size={18} />}
+                    <span>{uiText.generate}（{outputCount}张）</span>
+                    <small>{formatUsdCents(estimatedCostCents)}</small>
+                  </button>
+                </div>
+              </header>
 
-        </div>
-      </main>
+              <div className="image-page-grid">
+                <div className="image-main-column">
+                  <WorkflowRibbon steps={workflowSteps} busy={isGenerating || isExporting} />
+
+                  <ResizableWorkspace
+                    className="image-resizable-workspace"
+                    layout={imageWorkspaceLayout}
+                    onLayoutChange={updateImageWorkspaceLayout}
+                  >
+                    <section
+                      className={`upload-surface ${dragActive ? "drag-active" : ""} ${activeImage ? "has-image" : "is-empty"}`}
+                      onDragEnter={(event) => {
+                        event.preventDefault();
+                        setDragActive(true);
+                      }}
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                        setDragActive(true);
+                      }}
+                      onDragLeave={(event) => {
+                        event.preventDefault();
+                        setDragActive(false);
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        setDragActive(false);
+                        void handleFiles(event.dataTransfer.files);
+                      }}
+                    >
+                      {activeImage ? (
+                        <div className="image-workbench">
+                          <button
+                            className="image-preview-button"
+                            onClick={() => void selectImages()}
+                            title={uiText.clickImageToAdd}
+                          >
+                            <img src={activeImage.previewDataUrl} alt="Imported product" />
+                          </button>
+                          <div className="image-toolbar">
+                            <span>{importedImages.length} {uiText.imagesCount}</span>
+                            <button
+                              className="secondary-button"
+                              onClick={() =>
+                                setPreviewImage({
+                                  src: activeImage.previewDataUrl,
+                                  filePath: activeImage.sourceImagePath,
+                                  title: uiText.selectImage,
+                                  subtitle: `${activeImage.dimensions.width} x ${activeImage.dimensions.height}`,
+                                  fileName: "source-product.png"
+                                })
+                              }
+                            >
+                              <ZoomIn size={16} />
+                              {uiText.previewCurrentImage}
+                            </button>
+                            <button className="secondary-button" onClick={() => void selectImages()}>
+                              <Upload size={17} />
+                              {uiText.addImages}
+                            </button>
+                            <button className="secondary-button" onClick={clearImages}>
+                              <Trash2 size={16} />
+                              {uiText.clearImages}
+                            </button>
+                          </div>
+                          <div className="image-queue">
+                            {importedImages.map((image, index) => (
+                              <button
+                                key={image.sourceImagePath}
+                                className={image.sourceImagePath === activeImage.sourceImagePath ? "active" : ""}
+                                onClick={() => setActiveImagePath(image.sourceImagePath)}
+                              >
+                                <img src={image.previewDataUrl} alt={`Product ${index + 1}`} />
+                                <span>{index + 1}</span>
+                                <i
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    deleteImage(image.sourceImagePath);
+                                  }}
+                                  title={uiText.deleteImage}
+                                >
+                                  <X size={13} />
+                                </i>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="upload-empty">
+                          <button className="upload-empty-visual" onClick={() => void selectImages()}>
+                            <img src={workflowStudioIllustrationUrl} alt="" />
+                            <div className="upload-empty-action">
+                              <ImagePlus size={28} />
+                            </div>
+                          </button>
+                          <strong>{uiText.clickOrDragUpload}</strong>
+                          <p>支持 JPG / PNG / WebP 格式，单张图片 ≤ 20MB</p>
+                          <button className="primary-button" onClick={() => void selectImages()}>
+                            <Upload size={17} />
+                            {uiText.addImages}
+                          </button>
+                        </div>
+                      )}
+                    </section>
+
+                    <section className="preset-panel">
+                      {imageModelControls}
+                      <section className="embedded-output-panel">
+                        <div className="section-title">
+                          <span>{uiText.output}</span>
+                        </div>
+                        <div className="output-config-grid">
+                          <div className="output-config-field output-ratio-field">
+                            <span>{uiText.customAspectRatio}</span>
+                            <OutputDropdown
+                              value={aspectRatio}
+                              options={aspectRatios}
+                              customLabel="自定义比例"
+                              inputType="text"
+                              placeholder="1:1"
+                              onChange={setAspectRatio}
+                            />
+                          </div>
+                          <div className="output-config-field output-count-field">
+                            <span>{uiText.outputCount}</span>
+                            <OutputDropdown
+                              value={`${outputCount} 张`}
+                              options={[1, 2, 3, 4].map((item) => `${item} 张`)}
+                              customLabel="自定义张数"
+                              inputType="number"
+                              min={1}
+                              max={4}
+                              placeholder="1"
+                              customValue={String(outputCount)}
+                              onChange={(value) => setOutputCount(clampOutputCount(Number.parseInt(value, 10)))}
+                              onCustomChange={(value) => setOutputCount(clampOutputCount(Number.parseInt(value, 10)))}
+                            />
+                          </div>
+                        </div>
+                      </section>
+
+                      <section className="prompt-panel">
+                        <div className="section-title">
+                          <span>输入描述</span>
+                        </div>
+                        <label className="prompt-single-field">
+                          <span>提示词</span>
+                          <textarea
+                            value={productBrief}
+                            maxLength={5000}
+                            placeholder="选择下方模板会自动填入提示词，也可以在这里直接输入自定义生成要求。"
+                            onChange={(event) => setProductBrief(event.target.value)}
+                          />
+                        </label>
+                      </section>
+
+                      <section className="template-panel">
+                        <div className="section-title">
+                          <span>提示词模板</span>
+                          <small>{getPresetName(selectedPresets[0])}</small>
+                        </div>
+                        <div className="preset-list">
+                          {presetProgress.map(({ preset, progress: item, selected }) => (
+                            <button
+                              key={preset.id}
+                              className={`preset-item ${selected ? "selected" : ""} ${item?.status ? `progress-${item.status}` : ""}`}
+                              onClick={() => selectPreset(preset.id)}
+                              title={preset.prompt || preset.description}
+                            >
+                              <div>
+                                <strong>{preset.name}</strong>
+                                <span>{preset.description}</span>
+                              </div>
+                              <PresetState status={item?.status} />
+                            </button>
+                          ))}
+                        </div>
+                      </section>
+                    </section>
+
+                    <section className="result-band">
+                    <div className="section-title">
+                      <span>生成结果</span>
+                      <div className="section-actions">
+                        {activeJob?.errors.length ? <span className="error-count">{activeJob.errors.length} {uiText.errors}</span> : null}
+                        <button
+                          className="secondary-button compact-button"
+                          onClick={() => void exportAll()}
+                          disabled={results.length === 0 || isExporting}
+                        >
+                          {isExporting ? <Loader2 className="spin" size={14} /> : <Download size={14} />}
+                          导出全部
+                        </button>
+                      </div>
+                    </div>
+                    {activeJob?.errors.length ? <FailurePanel job={activeJob} /> : null}
+                    <div className="result-grid">
+                      {results.length === 0 ? (
+                        <div className="empty-results">{uiText.waitingResults}</div>
+                      ) : (
+                        results.map((result) => (
+                          <figure key={`${result.presetId}-${result.imagePath}`} className="result-tile result-enter">
+                            <button
+                              className="result-image-button"
+                              onClick={() =>
+                                setPreviewImage({
+                                  src: window.productStudio.toFileUrl(result.imagePath),
+                                  filePath: result.imagePath,
+                                  title: getPresetName(result.presetId),
+                                  subtitle: `${uiText.usedModel}: ${getModelDisplayName(result.providerId, result.modelId)}`,
+                                  fileName: `${result.presetId}-${result.modelId}.png`
+                                })
+                              }
+                            >
+                              <img src={window.productStudio.toFileUrl(result.imagePath)} alt={result.presetId} />
+                            </button>
+                            <figcaption>
+                              <span>{getPresetName(result.presetId)}</span>
+                              <small>{result.dimensions.width ? `${result.dimensions.width} x ${result.dimensions.height}` : result.modelId}</small>
+                              <button
+                                className="icon-button"
+                                onClick={() => void exportImagePaths([result.imagePath])}
+                                disabled={isExporting}
+                                title={uiText.export}
+                              >
+                                {isExporting ? <Loader2 className="spin" size={14} /> : <Download size={14} />}
+                              </button>
+                            </figcaption>
+                          </figure>
+                        ))
+                      )}
+                      </div>
+                    </section>
+                  </ResizableWorkspace>
+                </div>
+              </div>
+            </div>
+          </main>
         ) : activePage === "video" ? (
           <VideoGenerationPage
             activeImage={activeImage}
@@ -1428,34 +1583,33 @@ export function App() {
             providerId={videoProviderId}
             modelId={videoModelId}
             modelOptions={videoModelOptions}
+            aspectRatioOptions={videoAspectRatioOptions}
+            durationOptions={videoDurationOptions}
             keyStatus={keyStatus}
             prompt={videoPrompt}
             aspectRatio={videoAspectRatio}
             durationSeconds={videoDurationSeconds}
-            resolution={videoResolution}
-            watermark={videoWatermark}
-            enableAudio={videoAudio}
             estimatedCost={estimatedVideoCostCents}
             wallet={walletSummary}
             supported={videoSupported}
+            setupWarning={videoSetupWarning}
+            workflowSteps={videoWorkflowSteps}
             progress={videoProgress}
             job={activeVideoJob}
+            layout={videoWorkspaceLayout}
             isGenerating={isGeneratingVideo}
             isExporting={isExporting}
             canGenerate={canGenerateVideo}
             onSelectImage={selectImages}
             onSelectImagePath={setActiveImagePath}
-            onProviderChange={(nextProvider) => {
-              setVideoProviderId(nextProvider);
-              setVideoModelId(getDefaultVideoModel(nextProvider));
+            onModelSelect={(option) => {
+              setVideoProviderId(option.providerId);
+              setVideoModelId(option.modelId);
             }}
-            onModelChange={setVideoModelId}
             onPromptChange={setVideoPrompt}
             onAspectRatioChange={setVideoAspectRatio}
             onDurationChange={(value) => setVideoDurationSeconds(clampVideoDuration(value))}
-            onResolutionChange={setVideoResolution}
-            onWatermarkChange={setVideoWatermark}
-            onAudioChange={setVideoAudio}
+            onLayoutChange={updateVideoWorkspaceLayout}
             onGenerate={() => void generateVideo()}
             onCancel={() => void cancelVideoGeneration()}
             onExport={(videoPath) => void exportVideoPaths([videoPath])}
@@ -1487,7 +1641,11 @@ export function App() {
         ) : (
           <SettingsDialog
             defaultExportDir={defaultExportDir}
+            exportFormat={exportFormat}
+            tencentVodSubAppId={tencentVodSubAppId}
             embedded
+            onExportFormatChange={updateExportFormat}
+            onTencentVodSubAppIdChange={updateTencentVodSubAppId}
             onClose={() => setActivePage("image")}
             onChooseExportFolder={() => void chooseDefaultExportFolder()}
             onOpenTutorial={() => setTutorialOpen(true)}
@@ -1503,6 +1661,25 @@ export function App() {
         />
       ) : null}
       {tutorialOpen ? <TutorialDialog onClose={() => setTutorialOpen(false)} /> : null}
+      {pendingGenerateMode ? (
+        <GenerateConfirmationDialog
+          mode={pendingGenerateMode}
+          activeImage={activeImage}
+          importedImages={importedImages}
+          providerId={providerId}
+          modelId={modelId}
+          selectedPresets={selectedPresets}
+          aspectRatio={aspectRatio}
+          exportFormat={exportFormat}
+          outputCount={outputCount}
+          productBrief={productBrief}
+          estimatedCostCents={pendingGenerateMode === "single" ? estimatedCostCents : batchCostCents}
+          walletBalanceCents={walletSummary?.balanceCents ?? 0}
+          totalOutputCount={pendingGenerateMode === "single" ? singleOutputTotal : batchOutputTotal}
+          onCancel={() => setPendingGenerateMode(null)}
+          onConfirm={runPendingGeneration}
+        />
+      ) : null}
       {previewImage ? (
         <ImagePreviewDialog
           image={previewImage}
@@ -1634,46 +1811,48 @@ function VideoGenerationPage(props: {
   importedImages: ImportedImage[];
   providerId: ProviderId;
   modelId: string;
-  modelOptions: Array<{ modelId: string; displayName: string }>;
+  modelOptions: VideoModelMetadata[];
+  aspectRatioOptions: AspectRatio[];
+  durationOptions: number[];
   keyStatus: SecretStatus[];
   prompt: string;
   aspectRatio: AspectRatio;
   durationSeconds: number;
-  resolution: VideoResolution;
-  watermark: boolean;
-  enableAudio: boolean;
   estimatedCost: number;
   wallet: WalletSummary | null;
   supported: boolean;
+  setupWarning: string;
+  workflowSteps: Array<{ label: string; description: string; done: boolean; active: boolean }>;
   progress: VideoProgress | null;
   job: VideoGenerationJob | null;
+  layout: WorkspaceLayoutSize;
   isGenerating: boolean;
   isExporting: boolean;
   canGenerate: boolean;
   onSelectImage: () => void;
   onSelectImagePath: (path: string) => void;
-  onProviderChange: (providerId: ProviderId) => void;
-  onModelChange: (modelId: string) => void;
+  onModelSelect: (model: VideoModelMetadata) => void;
   onPromptChange: (prompt: string) => void;
   onAspectRatioChange: (ratio: AspectRatio) => void;
   onDurationChange: (value: number) => void;
-  onResolutionChange: (resolution: VideoResolution) => void;
-  onWatermarkChange: (value: boolean) => void;
-  onAudioChange: (value: boolean) => void;
+  onLayoutChange: (layout: WorkspaceLayoutSize) => void;
   onGenerate: () => void;
   onCancel: () => void;
   onExport: (videoPath: string) => void;
 }) {
   const configured = props.keyStatus.find((item) => item.providerId === props.providerId)?.configured ?? false;
   const hasEnoughCredits = (props.wallet?.balanceCents ?? 0) >= props.estimatedCost;
+  const durationItems = props.durationOptions.map((item) => `${item}s`);
+  const currentModelName = getVideoModelDisplayName(props.providerId, props.modelId);
   return (
-    <main className="page-workspace">
+    <main className="page-workspace video-workspace-page">
       <header className="page-header">
         <div>
           <h2>{uiText.videoPage}</h2>
           <p>
-            {providerConfigs[props.providerId].displayName} / {props.modelId} / {uiText.estimatedCost} {formatUsdCents(props.estimatedCost)}
+            {providerConfigs[props.providerId].displayName} / {currentModelName}
             {!configured ? ` / ${uiText.configureKeyFirst}` : ""}
+            {props.setupWarning ? ` / ${props.setupWarning}` : ""}
             {!hasEnoughCredits ? ` / ${uiText.insufficientBalance}` : ""}
           </p>
         </div>
@@ -1684,14 +1863,21 @@ function VideoGenerationPage(props: {
               {uiText.cancel}
             </button>
           ) : null}
-          <button className="primary-button" onClick={props.onGenerate} disabled={!props.canGenerate}>
+          <button className="primary-button cost-action-button" onClick={props.onGenerate} disabled={!props.canGenerate}>
             {props.isGenerating ? <Loader2 className="spin" size={18} /> : <Play size={18} />}
-            {uiText.generateVideo}
+            <span>{uiText.generateVideo}</span>
+            <small>{formatUsdCents(props.estimatedCost)}</small>
           </button>
         </div>
       </header>
 
-      <div className="video-page-grid">
+      <WorkflowRibbon steps={props.workflowSteps} busy={props.isGenerating || props.isExporting} />
+
+      <ResizableWorkspace
+        className="video-resizable-workspace"
+        layout={props.layout}
+        onLayoutChange={props.onLayoutChange}
+      >
         <section className="video-source-panel">
           <div className="section-title"><span>{uiText.imageQueue}</span></div>
           {props.activeImage ? (
@@ -1724,30 +1910,67 @@ function VideoGenerationPage(props: {
         </section>
 
         <section className="video-control-panel">
-          <div className="section-title"><span>{uiText.videoModel}</span></div>
-          <div className="video-form-grid">
-            <label>
+          <section className="control-group model-control preset-model-control video-model-control">
+            <div className="section-title">
               <span>{uiText.model}</span>
-              <select value={props.providerId} onChange={(event) => props.onProviderChange(event.target.value as ProviderId)}>
-                {providerOrder.map((id) => (
-                  <option key={id} value={id}>{providerConfigs[id].displayName}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>{uiText.videoModel}</span>
-              <select value={props.modelId} onChange={(event) => props.onModelChange(event.target.value)}>
-                {props.modelOptions.map((option) => (
-                  <option key={option.modelId} value={option.modelId}>{option.displayName}</option>
-                ))}
-              </select>
-            </label>
-            <label className="video-wide-field">
-              <span>{uiText.customModelId}</span>
-              <input value={props.modelId} onChange={(event) => props.onModelChange(event.target.value.trim())} />
-            </label>
-            <label className="video-wide-field">
+              <small>{currentModelName}</small>
+            </div>
+            <div className="model-picker compact-model-picker model-picker-unified">
+              <div className="model-option-list">
+                {props.modelOptions.map((option) => {
+                  const active = props.providerId === option.providerId && props.modelId === option.modelId;
+                  const configured = props.keyStatus.find((item) => item.providerId === option.providerId)?.configured;
+                  return (
+                    <button
+                      key={`${option.providerId}:${option.modelId}`}
+                      className={active ? "active" : ""}
+                      onClick={() => props.onModelSelect(option)}
+                    >
+                      <ProviderLogo providerId={option.providerId} compact />
+                      <span className="model-option-copy">
+                        <strong>{option.displayName}</strong>
+                      </span>
+                      {configured ? <Check size={15} /> : <KeyRound size={15} />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+
+          <section className="embedded-output-panel video-output-panel">
+            <div className="section-title">
+              <span>{uiText.output}</span>
+            </div>
+            <div className="output-config-grid video-output-config-grid">
+              <div className="output-config-field output-ratio-field">
+                <span>{uiText.customAspectRatio}</span>
+                <OutputDropdown
+                  value={props.aspectRatio}
+                  options={props.aspectRatioOptions}
+                  customLabel="自定义比例"
+                  inputType="text"
+                  placeholder="16:9"
+                  onChange={props.onAspectRatioChange}
+                />
+              </div>
+              <div className="output-config-field output-duration-field">
+                <span>{uiText.videoDuration}</span>
+                <SegmentedControl
+                  items={durationItems}
+                  value={`${props.durationSeconds}s`}
+                  onChange={(value) => props.onDurationChange(Number.parseInt(value, 10))}
+                />
+              </div>
+            </div>
+          </section>
+
+          <section className="prompt-panel video-prompt-panel">
+            <div className="section-title">
               <span>{uiText.videoPrompt}</span>
+            </div>
+            <label className="prompt-single-field">
+              <span>提示词</span>
               <textarea
                 value={props.prompt}
                 maxLength={900}
@@ -1755,38 +1978,10 @@ function VideoGenerationPage(props: {
                 onChange={(event) => props.onPromptChange(event.target.value)}
               />
             </label>
-            <div className="video-wide-field">
-              <span>{uiText.customAspectRatio}</span>
-              <SegmentedControl items={videoAspectRatios} value={props.aspectRatio} onChange={props.onAspectRatioChange} />
-              <input value={props.aspectRatio} onChange={(event) => props.onAspectRatioChange(event.target.value)} />
-            </div>
-            <label>
-              <span>{uiText.videoDuration}</span>
-              <input
-                type="number"
-                min={1}
-                max={30}
-                value={props.durationSeconds}
-                onChange={(event) => props.onDurationChange(Number(event.target.value))}
-              />
-            </label>
-            <div>
-              <span>{uiText.videoResolution}</span>
-              <SegmentedControl items={videoResolutions} value={props.resolution} onChange={props.onResolutionChange} />
-            </div>
-            <label className="toggle-row">
-              <input type="checkbox" checked={props.watermark} onChange={(event) => props.onWatermarkChange(event.target.checked)} />
-              <span>{uiText.videoWatermark}</span>
-            </label>
-            <label className="toggle-row">
-              <input type="checkbox" checked={props.enableAudio} onChange={(event) => props.onAudioChange(event.target.checked)} />
-              <span>{uiText.videoAudio}</span>
-            </label>
-          </div>
-          {!props.supported ? <div className="auth-message">{uiText.videoUnsupported}</div> : null}
+          </section>
+          {props.setupWarning ? <div className="auth-message">{props.setupWarning}</div> : null}
           {props.progress ? <div className="status-line"><span>{props.progress.message}</span></div> : null}
         </section>
-      </div>
 
       <section className="result-band video-result-band">
         <div className="section-title">
@@ -1813,7 +2008,85 @@ function VideoGenerationPage(props: {
           <div className="empty-results">{uiText.videoWaiting}</div>
         )}
       </section>
+      </ResizableWorkspace>
     </main>
+  );
+}
+
+function ProviderLogo(props: { providerId: ProviderId; compact?: boolean }) {
+  const brand = providerBrandMeta[props.providerId];
+  return (
+    <span
+      className={`provider-logo provider-logo-${props.providerId} ${props.compact ? "compact" : ""}`}
+      aria-label={`${brand.label} Logo 占位`}
+    >
+      <b>{brand.mark}</b>
+      {props.compact ? null : <small>{brand.shortName}</small>}
+    </span>
+  );
+}
+
+function ResizableWorkspace(props: {
+  className?: string;
+  layout: WorkspaceLayoutSize;
+  onLayoutChange: (layout: WorkspaceLayoutSize) => void;
+  children: ReactNode;
+}) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const panes = Children.toArray(props.children).filter((child) => typeof child !== "string" || child.trim());
+  const [sourcePane, configPane, resultPane] = panes;
+  const style = {
+    "--workspace-split": `${props.layout.splitPercent}%`,
+    "--workspace-result-height": `${props.layout.resultHeight}px`
+  } as CSSProperties;
+
+  function startResize(axis: "column" | "row", event: PointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const root = rootRef.current;
+    if (!root) return;
+    root.classList.add("is-resizing");
+
+    const handleMove = (moveEvent: globalThis.PointerEvent) => {
+      const rect = root.getBoundingClientRect();
+      if (axis === "column") {
+        const splitPercent = ((moveEvent.clientX - rect.left) / Math.max(rect.width, 1)) * 100;
+        props.onLayoutChange({ ...props.layout, splitPercent });
+        return;
+      }
+      const resultHeight = rect.bottom - moveEvent.clientY;
+      props.onLayoutChange({ ...props.layout, resultHeight });
+    };
+
+    const stopResize = () => {
+      root.classList.remove("is-resizing");
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", stopResize);
+    };
+
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", stopResize);
+  }
+
+  return (
+    <div ref={rootRef} className={`resizable-workspace ${props.className ?? ""}`} style={style}>
+      <div className="resizable-main-row">
+        <div className="resizable-pane resizable-source-pane">{sourcePane}</div>
+        <div
+          className="workspace-resize-handle workspace-resize-handle-column"
+          role="separator"
+          aria-orientation="vertical"
+          onPointerDown={(event) => startResize("column", event)}
+        />
+        <div className="resizable-pane resizable-config-pane">{configPane}</div>
+      </div>
+      <div
+        className="workspace-resize-handle workspace-resize-handle-row"
+        role="separator"
+        aria-orientation="horizontal"
+        onPointerDown={(event) => startResize("row", event)}
+      />
+      <div className="resizable-pane resizable-result-pane">{resultPane}</div>
+    </div>
   );
 }
 
@@ -1833,8 +2106,85 @@ function SegmentedControl<T extends string>(props: {
   );
 }
 
+function OutputDropdown(props: {
+  value: string;
+  options: string[];
+  customLabel: string;
+  inputType: "text" | "number";
+  placeholder: string;
+  customValue?: string;
+  min?: number;
+  max?: number;
+  onChange: (value: string) => void;
+  onCustomChange?: (value: string) => void;
+}) {
+  const customValue = props.customValue ?? props.value;
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function closeOnOutsidePointer(event: globalThis.PointerEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () => document.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, [open]);
+
+  return (
+    <div className="output-dropdown" ref={rootRef}>
+      <button className="output-dropdown-value" type="button">
+        {props.value}
+      </button>
+      <details
+        className="output-dropdown-menu"
+        open={open}
+        onToggle={(event) => setOpen(event.currentTarget.open)}
+      >
+        <summary
+          title="展开选项"
+          onClick={(event) => {
+            event.preventDefault();
+            setOpen((current) => !current);
+          }}
+        >
+          <ChevronDown size={15} />
+        </summary>
+        <div className="output-dropdown-panel">
+          {props.options.map((option) => (
+            <button
+              key={option}
+              type="button"
+              className={props.value === option ? "active" : ""}
+              onClick={() => {
+                props.onChange(option);
+                setOpen(false);
+              }}
+            >
+              {option}
+            </button>
+          ))}
+          <label>
+            <span>{props.customLabel}</span>
+            <input
+              type={props.inputType}
+              min={props.min}
+              max={props.max}
+              value={customValue}
+              placeholder={props.placeholder}
+              onChange={(event) => (props.onCustomChange ?? props.onChange)(event.target.value)}
+            />
+          </label>
+        </div>
+      </details>
+    </div>
+  );
+}
+
 function WorkflowRibbon(props: {
-  steps: Array<{ label: string; done: boolean; active: boolean }>;
+  steps: Array<{ label: string; description: string; done: boolean; active: boolean }>;
   busy: boolean;
 }) {
   return (
@@ -1844,8 +2194,23 @@ function WorkflowRibbon(props: {
           key={step.label}
           className={`workflow-step ${step.done ? "done" : ""} ${step.active ? "active" : ""}`}
         >
-          <span>{index + 1}</span>
-          <strong>{step.label}</strong>
+          <span className="workflow-number">{index + 1}</span>
+          <div>
+            <strong>{step.label}</strong>
+            <small>{step.description}</small>
+          </div>
+          <span className="workflow-check">
+            {step.done ? (
+              <>
+                <Check size={15} />
+                <b>已完成</b>
+              </>
+            ) : step.active ? (
+              <b>进行中</b>
+            ) : (
+              <b>待处理</b>
+            )}
+          </span>
         </div>
       ))}
     </section>
@@ -2025,11 +2390,12 @@ function WalletBadge(props: {
   return (
     <div className="wallet-badge">
       <div>
-        <span>
-          <User size={14} />
+        <span className="wallet-user-row">
           {props.session.username}
+          <em>VIP</em>
         </span>
-        <strong>{uiText.walletBalance} {formatUsdCents(props.wallet?.balanceCents ?? 0)}</strong>
+        <small>{uiText.walletBalance}</small>
+        <strong>{formatUsdCents(props.wallet?.balanceCents ?? 0)}</strong>
         <small>{uiText.walletUsed} {formatUsdCents(props.wallet?.usedCents ?? 0)}</small>
       </div>
       <button className="secondary-button" onClick={props.onRecharge}>
@@ -2060,6 +2426,117 @@ function FailurePanel({ job }: { job: ProductShotJob | VideoGenerationJob }) {
   );
 }
 
+function GenerateConfirmationDialog(props: {
+  mode: GenerateMode;
+  activeImage: ImportedImage | null;
+  importedImages: ImportedImage[];
+  providerId: ProviderId;
+  modelId: string;
+  selectedPresets: PresetId[];
+  aspectRatio: AspectRatio;
+  exportFormat: ExportFormat;
+  outputCount: number;
+  productBrief: string;
+  estimatedCostCents: number;
+  walletBalanceCents: number;
+  totalOutputCount: number;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const sourceImages = props.mode === "single"
+    ? props.activeImage
+      ? [props.activeImage]
+      : []
+    : props.importedImages;
+  const modelName = getModelDisplayName(props.providerId, props.modelId);
+  const modeTitle = props.mode === "single" ? "确认生成图片" : "确认批量生成";
+  const costAfterGenerate = props.walletBalanceCents - props.estimatedCostCents;
+  const perSourceOutputCount = props.selectedPresets.length * props.outputCount;
+  const presetNames = props.selectedPresets.map((presetId) => getPresetName(presetId)).join("、") || "未选择";
+  const promptSummary = props.productBrief.trim() || "未填写";
+
+  return (
+    <div className="modal-backdrop generate-confirm-backdrop">
+      <div className="generate-confirm-dialog compact">
+        <header>
+          <div className="generate-confirm-title">
+            <ProviderLogo providerId={props.providerId} />
+            <div>
+              <span>{props.mode === "single" ? uiText.generate : uiText.batchGenerate}</span>
+              <h2>{modeTitle}</h2>
+              <p>确认后开始任务，取消不会消耗积分。</p>
+            </div>
+          </div>
+          <button className="icon-button" onClick={props.onCancel} title={uiText.close}>
+            <X size={16} />
+          </button>
+        </header>
+
+        <section className="generate-confirm-summary">
+          <div>
+            <span>预计出图</span>
+            <strong>{props.totalOutputCount} 张</strong>
+          </div>
+          <div>
+            <span>预计消耗</span>
+            <strong>{formatUsdCents(props.estimatedCostCents)}</strong>
+          </div>
+          <div>
+            <span>{uiText.walletBalance}</span>
+            <strong>{formatUsdCents(props.walletBalanceCents)}</strong>
+          </div>
+          <div>
+            <span>任务后余额</span>
+            <strong className={costAfterGenerate < 0 ? "warn" : ""}>{formatUsdCents(costAfterGenerate)}</strong>
+          </div>
+        </section>
+
+        <div className="generate-confirm-compact-grid">
+          <ConfirmField label="源图 / 每张" value={`${sourceImages.length} 张 / ${perSourceOutputCount} 张`} />
+          <ConfirmField label="模型" value={modelName} />
+          <ConfirmField
+            label={uiText.output}
+            value={`${props.aspectRatio} / ${props.exportFormat} / 张数 ${props.outputCount} 张`}
+          />
+          <ConfirmField label="当前模板" value={presetNames} />
+          <ConfirmField label="模式" value={props.mode === "single" ? "单张生成" : "批量生成"} />
+        </div>
+
+        <section className="generate-confirm-brief">
+          <span>输入描述</span>
+          <p title={promptSummary}>{promptSummary}</p>
+        </section>
+
+        <div className="generate-confirm-source-hint">
+          <span title={sourceImages.map((image) => image.sourceImagePath).join("\n")}>
+            {sourceImages[0]?.sourceImagePath ?? "未选择源图"}
+            {sourceImages.length > 1 ? ` 等 ${sourceImages.length} 张` : ""}
+          </span>
+        </div>
+
+        <footer>
+          <button className="secondary-button" onClick={props.onCancel}>
+            {uiText.cancel}
+          </button>
+          <button className="primary-button" onClick={props.onConfirm}>
+            <Sparkles size={17} />
+            确认开始
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmField(props: { label: string; value: string }) {
+  return (
+    <div className="confirm-field">
+      <span>{props.label}</span>
+      <strong title={props.value}>{props.value}</strong>
+    </div>
+  );
+}
+
 function TutorialDialog(props: { onClose: () => void }) {
   const steps = [
     {
@@ -2070,12 +2547,12 @@ function TutorialDialog(props: { onClose: () => void }) {
     {
       imageUrl: tutorialApiConfigUrl,
       title: "\u914d\u7f6e API \u5bc6\u94a5\u4e0e\u6a21\u578b",
-      body: "\u8fdb\u5165\u201cAPI \u5bc6\u94a5\u201d\u586b\u5199\u5df2\u5f00\u901a\u7684\u56fd\u5185\u6a21\u578b\u5e73\u53f0\u5bc6\u94a5\u3002\u5982\u679c\u63a7\u5236\u53f0\u7ed9\u4f60\u7684\u662f\u7279\u5b9a\u63a5\u5165\u70b9 ID\uff0c\u5728\u5de6\u4fa7\u201c\u6a21\u578b / \u63a5\u5165\u70b9 ID\u201d\u91cc\u7c98\u8d34\u3002"
+      body: "\u8fdb\u5165\u201cAPI \u5bc6\u94a5\u201d\u586b\u5199\u5df2\u5f00\u901a\u7684\u56fd\u5185\u6a21\u578b\u5e73\u53f0\u5bc6\u94a5\uff0c\u7136\u540e\u5728\u4e3b\u5de5\u4f5c\u53f0\u7684\u6a21\u578b\u5217\u8868\u4e2d\u9009\u62e9\u8981\u4f7f\u7528\u7684\u6a21\u578b\u3002"
     },
     {
       imageUrl: tutorialResultsUrl,
       title: "\u751f\u6210\u5546\u62cd\u5957\u88c5",
-      body: "\u9009\u62e9\u6bd4\u4f8b\u3001\u683c\u5f0f\u548c\u56fe\u7247\u8d28\u91cf\uff0c\u518d\u8865\u5145\u4ea7\u54c1\u4fe1\u606f\u548c\u98ce\u683c\u8981\u6c42\u3002\u70b9\u51fb\u201c\u751f\u6210\u201d\u540e\uff0c\u7cfb\u7edf\u4f1a\u751f\u6210\u767d\u5e95\u4e3b\u56fe\u3001\u751f\u6d3b\u573a\u666f\u56fe\u3001\u8d28\u611f\u7279\u5199\u56fe\u548c\u8425\u9500\u6a2a\u56fe\u3002"
+      body: "\u9009\u62e9\u6bd4\u4f8b\u548c\u5f20\u6570\uff0c\u518d\u9009\u62e9\u63d0\u793a\u8bcd\u6a21\u677f\u6216\u8f93\u5165\u81ea\u5b9a\u4e49\u63d0\u793a\u8bcd\u3002\u70b9\u51fb\u201c\u751f\u6210\u201d\u540e\uff0c\u7cfb\u7edf\u4f1a\u6309\u5f53\u524d\u6a21\u677f\u548c\u5f20\u6570\u751f\u6210\u7ed3\u679c\u3002"
     },
     {
       imageUrl: tutorialTroubleshootingUrl,
@@ -2166,109 +2643,294 @@ function ImagePreviewDialog(props: {
   onClose: () => void;
   onSaved: (path: string) => void;
 }) {
-  const stageRef = useRef<HTMLDivElement | null>(null);
+  const sourcePreviewItem = useMemo(
+    () => createPreviewCompareItem(normalizePreviewImageName(props.image, props.image.title), `source:${props.image.filePath || props.image.src}`),
+    [props.image.filePath, props.image.src, props.image.subtitle, props.image.title, props.image.fileName]
+  );
   const dragRef = useRef<{
+    imageKey: string;
     pointerId: number;
     startX: number;
     startY: number;
     panX: number;
     panY: number;
   } | null>(null);
-  const [zoom, setZoom] = useState(1);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [isPanning, setIsPanning] = useState(false);
+  const compareGridRef = useRef<HTMLElement | null>(null);
+  const [previewItems, setPreviewItems] = useState<PreviewCompareItem[]>(() => [sourcePreviewItem]);
+  const [activePreviewId, setActivePreviewId] = useState(sourcePreviewItem.id);
+  const [compareLayout, setCompareLayout] = useState<PreviewCompareLayout>("adaptive");
+  const [customGridSize, setCustomGridSize] = useState(5);
+  const [compareModeEnabled, setCompareModeEnabled] = useState(false);
+  const [draggedPreviewId, setDraggedPreviewId] = useState<string | null>(null);
+  const [dragOverPreviewId, setDragOverPreviewId] = useState<string | null>(null);
+  const [viewStates, setViewStates] = useState<Record<string, PreviewViewState>>({});
+  const [panningImageKey, setPanningImageKey] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [brightness, setBrightness] = useState(100);
   const [contrast, setContrast] = useState(100);
   const [saturation, setSaturation] = useState(100);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const activePreviewImage = previewItems.find((image) => image.id === activePreviewId) ?? previewItems[0] ?? sourcePreviewItem;
+  const activePreviewKey = activePreviewImage.id;
+  const activeViewState = viewStates[activePreviewKey] ?? defaultPreviewViewState;
+  const showCompareGrid = previewItems.length > 1 || compareModeEnabled;
   const imageFilter = `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%)`;
 
   useEffect(() => {
-    resetView();
+    resetAllViews();
     setEditing(false);
     resetEdit();
     setMessage("");
-  }, [props.image.src]);
+    setPreviewItems([sourcePreviewItem]);
+    setActivePreviewId(sourcePreviewItem.id);
+    setCompareLayout("adaptive");
+    setCustomGridSize(5);
+    setCompareModeEnabled(false);
+  }, [sourcePreviewItem.id]);
+
+  useEffect(() => {
+    const gridElement = compareGridRef.current;
+    if (!showCompareGrid || !gridElement) return;
+    const guardedGrid: HTMLElement = gridElement;
+
+    function blockGridWheel(event: globalThis.WheelEvent) {
+      const rect = guardedGrid.getBoundingClientRect();
+      const scrollbarWidth = guardedGrid.offsetWidth - guardedGrid.clientWidth;
+      const scrollbarHitWidth = Math.max(14, scrollbarWidth);
+      const onVerticalScrollbar = event.clientX >= rect.right - scrollbarHitWidth && event.clientX <= rect.right;
+      if (onVerticalScrollbar) return;
+      event.preventDefault();
+    }
+
+    guardedGrid.addEventListener("wheel", blockGridWheel, { capture: true, passive: false });
+    return () => {
+      guardedGrid.removeEventListener("wheel", blockGridWheel, true);
+    };
+  }, [showCompareGrid]);
+
+  function createPreviewCompareItem(image: PreviewImage, id: string): PreviewCompareItem {
+    return { ...image, id };
+  }
+
+  function createDefaultPreviewViewState(): PreviewViewState {
+    return { zoom: 1, pan: { x: 0, y: 0 } };
+  }
 
   function clampPreviewZoom(value: number): number {
     return Math.min(6, Math.max(0.35, value));
   }
 
-  function resetView() {
-    setZoom(1);
-    setPan({ x: 0, y: 0 });
+  function getViewState(imageKey: string): PreviewViewState {
+    return viewStates[imageKey] ?? defaultPreviewViewState;
+  }
+
+  function updateViewState(imageKey: string, updater: (state: PreviewViewState) => PreviewViewState) {
+    setViewStates((current) => ({
+      ...current,
+      [imageKey]: updater(current[imageKey] ?? defaultPreviewViewState)
+    }));
+  }
+
+  function resetView(imageKey = activePreviewKey) {
+    setViewStates((current) => ({
+      ...current,
+      [imageKey]: createDefaultPreviewViewState()
+    }));
+  }
+
+  function resetAllViews() {
+    dragRef.current = null;
+    setPanningImageKey(null);
+    setDraggedPreviewId(null);
+    setDragOverPreviewId(null);
+    setViewStates({});
   }
 
   function zoomFromCenter(delta: number) {
-    setZoom((currentZoom) => {
-      const nextZoom = clampPreviewZoom(currentZoom + delta);
-      if (nextZoom <= 1) {
-        setPan({ x: 0, y: 0 });
-      }
-      return nextZoom;
+    updateViewState(activePreviewKey, (current) => {
+      const nextZoom = clampPreviewZoom(current.zoom + delta);
+      return {
+        zoom: nextZoom,
+        pan: nextZoom <= 1 ? { x: 0, y: 0 } : current.pan
+      };
     });
   }
 
-  function handleWheel(event: WheelEvent<HTMLDivElement>) {
-    event.preventDefault();
-    const rect = stageRef.current?.getBoundingClientRect();
-    if (!rect) return;
+  function selectPreviewItem(imageId: string) {
+    setActivePreviewId(imageId);
+    setMessage("");
+  }
 
-    const cursorX = event.clientX - rect.left - rect.width / 2;
-    const cursorY = event.clientY - rect.top - rect.height / 2;
+  function deletePreviewItem(imageId: string) {
+    setPreviewItems((current) => {
+      if (current.length <= 1) return current;
+      const deletedIndex = current.findIndex((item) => item.id === imageId);
+      if (deletedIndex < 0) return current;
+      const nextItems = current.filter((item) => item.id !== imageId);
+      setViewStates((currentStates) => {
+        const nextStates = { ...currentStates };
+        delete nextStates[imageId];
+        return nextStates;
+      });
+      setActivePreviewId((currentActiveId) => {
+        if (currentActiveId !== imageId) return currentActiveId;
+        return nextItems[Math.min(deletedIndex, nextItems.length - 1)].id;
+      });
+      setMessage("已删除对比图");
+      return nextItems;
+    });
+  }
+
+  function reorderPreviewItems(sourceId: string, targetId: string) {
+    if (sourceId === targetId) return;
+    setPreviewItems((current) => {
+      const sourceIndex = current.findIndex((item) => item.id === sourceId);
+      const targetIndex = current.findIndex((item) => item.id === targetId);
+      if (sourceIndex < 0 || targetIndex < 0) return current;
+      const nextItems = [...current];
+      const [movedItem] = nextItems.splice(sourceIndex, 1);
+      nextItems.splice(targetIndex, 0, movedItem);
+      return nextItems;
+    });
+    setMessage("已调整对比顺序");
+  }
+
+  function handlePreviewDragStart(event: DragEvent<HTMLElement>, imageId: string) {
+    if (isPreviewInteractiveDragTarget(event.target)) {
+      event.preventDefault();
+      return;
+    }
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", imageId);
+    setDraggedPreviewId(imageId);
+  }
+
+  function handlePreviewDragOver(event: DragEvent<HTMLElement>, imageId: string) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDragOverPreviewId(imageId);
+  }
+
+  function handlePreviewDrop(event: DragEvent<HTMLElement>, imageId: string) {
+    event.preventDefault();
+    const sourceId = draggedPreviewId || event.dataTransfer.getData("text/plain");
+    setDraggedPreviewId(null);
+    setDragOverPreviewId(null);
+    if (sourceId) {
+      reorderPreviewItems(sourceId, imageId);
+    }
+  }
+
+  function handlePreviewDragEnd() {
+    setDraggedPreviewId(null);
+    setDragOverPreviewId(null);
+  }
+
+  function handleWheelForImage(event: WheelEvent<HTMLElement>, imageKey: string) {
+    event.preventDefault();
+    event.stopPropagation();
+    setActivePreviewId(imageKey);
+    const rect = event.currentTarget.getBoundingClientRect();
+
+    const cursorX = event.clientX - rect.left;
+    const cursorY = event.clientY - rect.top;
     const factor = event.deltaY > 0 ? 0.88 : 1.12;
 
-    setZoom((currentZoom) => {
-      const nextZoom = clampPreviewZoom(currentZoom * factor);
-      setPan((currentPan) => {
-        if (nextZoom <= 1) {
-          return { x: 0, y: 0 };
-        }
-        const imagePointX = (cursorX - currentPan.x) / currentZoom;
-        const imagePointY = (cursorY - currentPan.y) / currentZoom;
-        return {
+    updateViewState(imageKey, (current) => {
+      const nextZoom = clampPreviewZoom(current.zoom * factor);
+      const imagePointX = (cursorX - current.pan.x) / current.zoom;
+      const imagePointY = (cursorY - current.pan.y) / current.zoom;
+      return {
+        zoom: nextZoom,
+        pan: {
           x: cursorX - imagePointX * nextZoom,
           y: cursorY - imagePointY * nextZoom
-        };
-      });
-      return nextZoom;
+        }
+      };
     });
   }
 
-  function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
+  function handleCompareGridWheel(event: WheelEvent<HTMLElement>) {
+    const element = event.currentTarget;
+    const rect = element.getBoundingClientRect();
+    const scrollbarWidth = element.offsetWidth - element.clientWidth;
+    const scrollbarHitWidth = Math.max(14, scrollbarWidth);
+    const onVerticalScrollbar = event.clientX >= rect.right - scrollbarHitWidth;
+    if (onVerticalScrollbar) return;
+    event.preventDefault();
+  }
+
+  function selectCompareLayout(layout: PreviewCompareLayout) {
+    setCompareLayout(layout);
+  }
+
+  function updateCustomGridSize(value: number) {
+    const nextSize = Math.min(8, Math.max(2, Math.floor(Number(value) || 2)));
+    setCustomGridSize(nextSize);
+    setCompareLayout("custom");
+  }
+
+  function getCompareGridClassName(): string {
+    return compareLayout === "custom" ? "grid-custom" : compareLayout;
+  }
+
+  function handlePointerDownForImage(event: PointerEvent<HTMLElement>, imageKey: string) {
     if (event.button !== 0) return;
     event.preventDefault();
+    setActivePreviewId(imageKey);
     event.currentTarget.setPointerCapture(event.pointerId);
+    const viewState = getViewState(imageKey);
     dragRef.current = {
+      imageKey,
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
-      panX: pan.x,
-      panY: pan.y
+      panX: viewState.pan.x,
+      panY: viewState.pan.y
     };
-    setIsPanning(true);
+    setPanningImageKey(imageKey);
   }
 
-  function handlePointerMove(event: PointerEvent<HTMLDivElement>) {
+  function handlePointerMoveForImage(event: PointerEvent<HTMLElement>) {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     event.preventDefault();
-    setPan({
-      x: drag.panX + event.clientX - drag.startX,
-      y: drag.panY + event.clientY - drag.startY
-    });
+    updateViewState(drag.imageKey, (current) => ({
+      zoom: current.zoom,
+      pan: {
+        x: drag.panX + event.clientX - drag.startX,
+        y: drag.panY + event.clientY - drag.startY
+      }
+    }));
   }
 
-  function stopPanning(event: PointerEvent<HTMLDivElement>) {
+  function stopPanningForImage(event: PointerEvent<HTMLElement>) {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
     dragRef.current = null;
-    setIsPanning(false);
+    setPanningImageKey(null);
+  }
+
+  function getPreviewImageStyle(image: PreviewCompareItem, active: boolean) {
+    const viewState = getViewState(image.id);
+    return {
+      filter: active ? imageFilter : undefined,
+      transform: `matrix(${viewState.zoom}, 0, 0, ${viewState.zoom}, ${viewState.pan.x}, ${viewState.pan.y})`
+    };
+  }
+
+  function handleCompareGridDoubleClick(event: MouseEvent<HTMLElement>) {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const item = target.closest("[data-preview-key]");
+    const imageKey = item?.getAttribute("data-preview-key");
+    if (imageKey) {
+      resetView(imageKey);
+    }
   }
 
   function resetEdit() {
@@ -2282,9 +2944,9 @@ function ImagePreviewDialog(props: {
     setMessage("");
     try {
       const targetDir = props.defaultExportDir || (await props.resolveDefaultExportDir());
-      if (props.image.filePath) {
+      if (activePreviewImage.filePath) {
         const response = await window.productStudio.exportImages({
-          imagePaths: [props.image.filePath],
+          imagePaths: [activePreviewImage.filePath],
           format: props.exportFormat,
           targetDir
         });
@@ -2306,11 +2968,11 @@ function ImagePreviewDialog(props: {
     setMessage("");
     try {
       const targetDir = props.defaultExportDir || (await props.resolveDefaultExportDir());
-      const dataUrl = await renderEditedDataUrl(props.image.src, imageFilter, props.exportFormat);
+      const dataUrl = await renderEditedDataUrl(activePreviewImage.src, imageFilter, props.exportFormat);
       const response = await window.productStudio.saveEditedImage({
         dataUrl,
         targetDir,
-        fileName: buildEditedFileName(props.image.fileName, props.exportFormat)
+        fileName: buildEditedFileName(activePreviewImage.fileName, props.exportFormat)
       });
       props.onSaved(response.imagePath);
       setMessage(response.imagePath);
@@ -2321,28 +2983,108 @@ function ImagePreviewDialog(props: {
     }
   }
 
+  async function addComparisonImages() {
+    setBusy(true);
+    setMessage("");
+    try {
+      const imported = await window.productStudio.selectImages();
+      if (imported.length === 0) {
+        setMessage(uiText.imageCanceled);
+        return;
+      }
+      const createdAt = Date.now();
+      const nextImages = imported.map((image, index) => {
+        const originalFileName = getDisplayFileName(image.sourceImagePath, `comparison-${previewItems.length + index + 1}.png`);
+        return createPreviewCompareItem(
+          {
+            src: image.previewDataUrl,
+            filePath: image.sourceImagePath,
+            title: originalFileName,
+            subtitle: `${image.dimensions.width} x ${image.dimensions.height}`,
+            fileName: originalFileName
+          },
+          `compare:${image.sourceImagePath}:${createdAt}:${index}`
+        );
+      });
+      setPreviewItems((current) => [...current, ...nextImages]);
+      if (nextImages[0]) {
+        setActivePreviewId(nextImages[0].id);
+      }
+      setCompareModeEnabled(true);
+      setMessage(`已添加 ${imported.length} 张对比图`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : uiText.importFailed);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="modal-backdrop preview-backdrop">
       <div className="preview-dialog">
         <header>
           <div>
-            <h2>{props.image.title}</h2>
-            <p>{props.image.subtitle ?? uiText.previewImage}</p>
+            <h2>{uiText.previewImage}</h2>
           </div>
           <div className="preview-toolbar">
             <button className="icon-button" onClick={() => zoomFromCenter(-0.2)} title={uiText.zoomOut}>
               <ZoomOut size={16} />
             </button>
-            <span>{Math.round(zoom * 100)}%</span>
+            <span>{Math.round(activeViewState.zoom * 100)}%</span>
             <button className="icon-button" onClick={() => zoomFromCenter(0.2)} title={uiText.zoomIn}>
               <ZoomIn size={16} />
             </button>
-            <button className="icon-button" onClick={resetView} title={uiText.resetView}>
+            <button className="icon-button" onClick={() => resetView()} title={uiText.resetView}>
               <RotateCcw size={16} />
             </button>
+            {showCompareGrid ? (
+              <div className="preview-layout-control" aria-label="对比图显示模式">
+                <button
+                  className={compareLayout === "adaptive" ? "active preview-layout-main" : "preview-layout-main"}
+                  onClick={() => selectCompareLayout("adaptive")}
+                  title="自适应对比"
+                >
+                  <Rows2 size={15} />
+                  自适应
+                </button>
+                <details className="preview-layout-menu">
+                  <summary title="展开布局选项">
+                    <ChevronDown size={15} />
+                  </summary>
+                  <div className="preview-layout-menu-panel">
+                    <button onClick={() => selectCompareLayout("grid-2x2")}>
+                      <LayoutGrid size={14} />
+                      2x2
+                    </button>
+                    <button onClick={() => selectCompareLayout("grid-3x3")}>
+                      <LayoutGrid size={14} />
+                      3x3
+                    </button>
+                    <button onClick={() => selectCompareLayout("grid-4x4")}>
+                      <LayoutGrid size={14} />
+                      4x4
+                    </button>
+                    <label>
+                      <span>自定义</span>
+                      <input
+                        type="number"
+                        min={2}
+                        max={8}
+                        value={customGridSize}
+                        onChange={(event) => updateCustomGridSize(Number(event.target.value))}
+                      />
+                    </label>
+                  </div>
+                </details>
+              </div>
+            ) : null}
             <button className={`secondary-button ${editing ? "active" : ""}`} onClick={() => setEditing((value) => !value)}>
               <Edit3 size={16} />
               {uiText.editImage}
+            </button>
+            <button className="secondary-button" onClick={() => void addComparisonImages()} disabled={busy}>
+              <ImagePlus size={16} />
+              添加对比图
             </button>
             <button className="secondary-button" onClick={() => void saveOriginal()} disabled={busy}>
               <Download size={16} />
@@ -2368,28 +3110,103 @@ function ImagePreviewDialog(props: {
             </button>
           </section>
         ) : null}
-        <div
-          ref={stageRef}
-          className={`preview-stage ${isPanning ? "panning" : ""}`}
-          onWheel={handleWheel}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={stopPanning}
-          onPointerCancel={stopPanning}
-          onDoubleClick={resetView}
-          role="presentation"
-        >
-          <img
-            src={props.image.src}
-            alt={props.image.title}
-            draggable={false}
-            onDragStart={(event) => event.preventDefault()}
-            style={{
-              filter: imageFilter,
-              transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`
-            }}
-          />
-        </div>
+        {showCompareGrid ? (
+          <section
+            ref={compareGridRef}
+            className={`preview-compare-grid ${getCompareGridClassName()}`}
+            style={compareLayout === "custom" ? { gridTemplateColumns: `repeat(${customGridSize}, minmax(0, 1fr))` } : undefined}
+            aria-label="图片对比"
+            onDoubleClick={handleCompareGridDoubleClick}
+            onWheel={handleCompareGridWheel}
+          >
+            {previewItems.map((image, index) => {
+              const active = activePreviewId === image.id;
+              return (
+                <article
+                  key={image.id}
+                  data-preview-key={image.id}
+                  className={`preview-compare-card ${active ? "active" : ""} ${draggedPreviewId === image.id ? "dragging" : ""} ${dragOverPreviewId === image.id ? "drag-over" : ""}`}
+                  draggable
+                  onClick={() => selectPreviewItem(image.id)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      selectPreviewItem(image.id);
+                    }
+                  }}
+                  onDragStart={(event) => handlePreviewDragStart(event, image.id)}
+                  onDragOver={(event) => handlePreviewDragOver(event, image.id)}
+                  onDrop={(event) => handlePreviewDrop(event, image.id)}
+                  onDragEnd={handlePreviewDragEnd}
+                  role="button"
+                  tabIndex={0}
+                  title={image.title}
+                >
+                  <div className="preview-compare-actions">
+                    <span className="preview-drag-indicator" title="拖动卡片外框排序">
+                      <GripVertical size={15} />
+                    </span>
+                    <span className="preview-order-badge">{index + 1}</span>
+                  </div>
+                  <button
+                    className="preview-delete-button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      deletePreviewItem(image.id);
+                    }}
+                    disabled={previewItems.length <= 1}
+                    title="删除对比图"
+                    aria-label="删除对比图"
+                  >
+                    <X size={15} />
+                  </button>
+                  <span
+                    className={`preview-compare-image ${panningImageKey === image.id ? "panning" : ""}`}
+                    onWheel={(event) => handleWheelForImage(event, image.id)}
+                    onPointerDown={(event) => handlePointerDownForImage(event, image.id)}
+                    onPointerMove={handlePointerMoveForImage}
+                    onPointerUp={stopPanningForImage}
+                    onPointerCancel={stopPanningForImage}
+                    onDragStart={(event) => event.preventDefault()}
+                  >
+                    <img
+                      src={image.src}
+                      alt={image.title}
+                      draggable={false}
+                      onDragStart={(event) => event.preventDefault()}
+                      style={getPreviewImageStyle(image, active)}
+                    />
+                  </span>
+                  <span className="preview-compare-meta">
+                    <strong>{image.title}</strong>
+                  </span>
+                </article>
+              );
+            })}
+          </section>
+        ) : (
+          <div
+            className={`preview-stage ${panningImageKey === activePreviewKey ? "panning" : ""}`}
+            onWheel={(event) => handleWheelForImage(event, activePreviewKey)}
+            onPointerDown={(event) => handlePointerDownForImage(event, activePreviewKey)}
+            onPointerMove={handlePointerMoveForImage}
+            onPointerUp={stopPanningForImage}
+            onPointerCancel={stopPanningForImage}
+            onDoubleClick={() => resetView()}
+            role="presentation"
+          >
+            <img
+              src={activePreviewImage.src}
+              alt={activePreviewImage.title}
+              draggable={false}
+              onDragStart={(event) => event.preventDefault()}
+              style={{
+                filter: imageFilter,
+                transform: `matrix(${activeViewState.zoom}, 0, 0, ${activeViewState.zoom}, ${activeViewState.pan.x}, ${activeViewState.pan.y})`
+              }}
+            />
+          </div>
+        )}
         <footer>{message || uiText.previewInteractionHint}</footer>
       </div>
     </div>
@@ -2447,6 +3264,25 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 function buildEditedFileName(fileName: string | undefined, format: ExportFormat): string {
   const base = (fileName || "product-shot").replace(/\.[a-z0-9]+$/i, "");
   return `${base}-edited.${format}`;
+}
+
+function getDisplayFileName(pathOrName: string | undefined, fallback: string): string {
+  const trimmed = pathOrName?.trim();
+  if (!trimmed) return fallback;
+  return trimmed.split(/[\\/]/).filter(Boolean).pop() || fallback;
+}
+
+function normalizePreviewImageName(image: PreviewImage, fallback: string): PreviewImage {
+  const originalName = getDisplayFileName(image.filePath || image.fileName, fallback);
+  return {
+    ...image,
+    title: originalName,
+    fileName: getDisplayFileName(image.fileName || image.filePath, originalName)
+  };
+}
+
+function isPreviewInteractiveDragTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest("button, input, textarea, select, .preview-compare-image"));
 }
 
 function PersonalCenterPage(props: {
@@ -2851,46 +3687,54 @@ function PriceTable({ compact }: { compact: boolean }) {
   );
 }
 
-function getProviderModelOptions(providerId: ProviderId, currentModelId: string) {
-  const modelIds = new Set<string>([
-    ...providerConfigs[providerId].models,
-    ...modelPrices.filter((price) => price.providerId === providerId).map((price) => price.modelId)
-  ]);
-  if (currentModelId && !modelIds.has(currentModelId)) {
-    modelIds.add(currentModelId);
+function getImageModelOptions(currentProviderId: ProviderId, currentModelId: string): ImageModelOption[] {
+  const optionMap = new Map<string, ImageModelOption>();
+  for (const providerId of providerOrder) {
+    const modelIds = new Set<string>([
+      ...providerConfigs[providerId].models,
+      ...modelPrices.filter((price) => price.providerId === providerId).map((price) => price.modelId)
+    ]);
+    for (const modelId of modelIds) {
+      optionMap.set(`${providerId}:${modelId}`, {
+        providerId,
+        modelId,
+        displayName: getModelDisplayName(providerId, modelId)
+      });
+    }
   }
-  return Array.from(modelIds).map((modelId) => ({
-    modelId,
-    displayName: getModelDisplayName(providerId, modelId)
-  }));
+  if (currentModelId && !optionMap.has(`${currentProviderId}:${currentModelId}`)) {
+    optionMap.set(`${currentProviderId}:${currentModelId}`, {
+      providerId: currentProviderId,
+      modelId: currentModelId,
+      displayName: getModelDisplayName(currentProviderId, currentModelId)
+    });
+  }
+  return Array.from(optionMap.values());
 }
 
-function getVideoModelOptions(providerId: ProviderId, currentModelId: string) {
-  const modelIds = new Set<string>(providerId === "volcano"
-    ? ["doubao-seedance-2-0-260128"]
-    : providerId === "aliyun"
-      ? ["wanx2.1-i2v-turbo", "wanx2.1-i2v-plus"]
-      : []);
-  if (currentModelId) {
-    modelIds.add(currentModelId);
+function getVideoModelOptions(providerId: ProviderId, currentModelId: string): VideoModelMetadata[] {
+  const options = providerOrder.flatMap((item) => getVideoModelsForProvider(item));
+  if (!currentModelId || options.some((option) => option.modelId === currentModelId)) {
+    return options;
   }
-  if (modelIds.size === 0) {
-    modelIds.add(getDefaultVideoModel(providerId));
-  }
-  return Array.from(modelIds).map((modelId) => ({
-    modelId,
-    displayName: modelId
-  }));
-}
-
-function getDefaultVideoModel(providerId: ProviderId): string {
-  if (providerId === "volcano") return "doubao-seedance-2-0-260128";
-  if (providerId === "aliyun") return "wanx2.1-i2v-turbo";
-  return "tencent-video-requires-cos";
+  const current = getVideoModelMeta(providerId, currentModelId);
+  return current ? [...options, current] : options;
 }
 
 function clampVideoDuration(value: number): number {
   return Math.min(30, Math.max(1, Math.ceil(Number(value) || 5)));
+}
+
+function getDefaultHiddenVideoResolution(model: VideoModelMetadata | null): VideoResolution {
+  if (model?.resolutions.includes("720p")) return "720p";
+  return model?.resolutions[0] ?? "720p";
+}
+
+function clampWorkspaceLayout(layout: WorkspaceLayoutSize): WorkspaceLayoutSize {
+  return {
+    splitPercent: Math.min(68, Math.max(30, Number(layout.splitPercent) || 50)),
+    resultHeight: Math.min(420, Math.max(150, Math.round(Number(layout.resultHeight) || 220)))
+  };
 }
 
 function isVideoJob(job: StudioJob): job is VideoGenerationJob {
@@ -2908,6 +3752,10 @@ function getModelDisplayName(providerId: unknown, modelId: string): string {
   );
 }
 
+function getVideoModelDisplayName(providerId: ProviderId, modelId: string): string {
+  return getVideoModelMeta(providerId, modelId)?.displayName ?? modelId;
+}
+
 function getProviderDisplayName(providerId: unknown): string {
   return isProviderId(providerId) ? providerConfigs[providerId].displayName : uiText.unknownProvider;
 }
@@ -2916,6 +3764,17 @@ function getPresetName(presetId: unknown): string {
   return typeof presetId === "string" && presetId in presetLabels
     ? presetLabels[presetId as PresetId].name
     : uiText.unknownPreset;
+}
+
+function isPresetId(value: unknown): value is PresetId {
+  return typeof value === "string" && value in presetLabels;
+}
+
+function mergeLegacyPromptFields(productBrief?: string, styleGuide?: string, posterCopy?: string): string {
+  return [productBrief, styleGuide, posterCopy]
+    .map((value) => value?.trim())
+    .filter((value): value is string => Boolean(value))
+    .join("\n\n");
 }
 
 function formatSignedCredits(amountCents: number): string {
@@ -3037,7 +3896,11 @@ function ApiKeysDialog(props: {
 
 function SettingsDialog(props: {
   defaultExportDir: string;
+  exportFormat: ExportFormat;
+  tencentVodSubAppId: string;
   embedded?: boolean;
+  onExportFormatChange: (format: ExportFormat) => void;
+  onTencentVodSubAppIdChange: (value: string) => void;
   onClose: () => void;
   onChooseExportFolder: () => void;
   onOpenTutorial: () => void;
@@ -3062,6 +3925,30 @@ function SettingsDialog(props: {
               <FolderOpen size={16} />
               {uiText.changeExportFolder}
             </button>
+          </section>
+          <section className="settings-card settings-format-card">
+            <div>
+              <strong>{uiText.outputFormat}</strong>
+              <span>用于生成、导出和预览保存的默认图片格式</span>
+            </div>
+            <SegmentedControl
+              items={exportFormats}
+              value={props.exportFormat}
+              onChange={props.onExportFormatChange}
+            />
+          </section>
+          <section className="settings-card settings-vod-card">
+            <div>
+              <strong>腾讯云点播 SubAppId</strong>
+              <span>腾讯 VOD AIGC 生视频任务使用；API 密钥仍使用 SecretId:SecretKey</span>
+            </div>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={props.tencentVodSubAppId}
+              placeholder="例如 1500000000"
+              onChange={(event) => props.onTencentVodSubAppIdChange(event.target.value)}
+            />
           </section>
           <section className="settings-card">
             <div>

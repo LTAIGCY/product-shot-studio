@@ -23,7 +23,7 @@ function buildRequest(): ProductShotRequest {
     sourceImagePath: path.join(os.tmpdir(), "source-product.png"),
     providerId: "aliyun",
     modelId: "qwen-image-edit",
-    presetIds: ["white-main", "marketing-banner"],
+    presetIds: ["white-main", "promotion-poster"],
     fidelity: "strict",
     productBrief: "matte black coffee tumbler for office commuters",
     styleGuide: "warm kitchen counter with clean premium props",
@@ -68,13 +68,13 @@ describe("ProductShotService", () => {
       })
     );
     expect(progress).toHaveBeenCalledWith(expect.objectContaining({ presetId: "white-main", status: "completed" }));
-    expect(progress).toHaveBeenCalledWith(expect.objectContaining({ presetId: "marketing-banner", status: "completed" }));
+    expect(progress).toHaveBeenCalledWith(expect.objectContaining({ presetId: "promotion-poster", status: "completed" }));
     expect(upsertJob).toHaveBeenCalled();
   });
 
   it("keeps successful results when one preset fails", async () => {
     const adapter = createMockAdapter(async (context) => {
-      if (context.presetId === "marketing-banner") {
+      if (context.presetId === "promotion-poster") {
         throw new Error("HTTP 429 rate limit for sk-test");
       }
       return [buildResult(context)];
@@ -91,7 +91,9 @@ describe("ProductShotService", () => {
   });
 
   it("clamps requested output count before calling a provider", async () => {
-    const adapter = createMockAdapter(async (context) => [buildResult(context)]);
+    const adapter = createMockAdapter(async (context, request) =>
+      Array.from({ length: request.outputCount }, (_, index) => buildResult(context, index))
+    );
     const { service } = buildService(adapter);
 
     await service.generate({ ...buildRequest(), outputCount: 12 }, vi.fn());
@@ -100,6 +102,20 @@ describe("ProductShotService", () => {
       expect.objectContaining({ outputCount: 4 }),
       expect.anything()
     );
+  });
+
+  it("fails a preset when the provider returns fewer images than requested", async () => {
+    const adapter = createMockAdapter(async (context) => [buildResult(context)]);
+    const { service } = buildService(adapter);
+    const progress = vi.fn();
+
+    const job = await service.generate({ ...buildRequest(), presetIds: ["white-main"], outputCount: 4 }, progress);
+
+    expect(job.status).toBe("failed");
+    expect(job.results).toHaveLength(0);
+    expect(job.errors).toHaveLength(1);
+    expect(job.errors[0].message).toContain("1/4");
+    expect(progress).toHaveBeenCalledWith(expect.objectContaining({ presetId: "white-main", status: "failed" }));
   });
 
   it("marks active jobs canceled and ignores late provider results", async () => {
@@ -133,20 +149,21 @@ describe("ProductShotService", () => {
 
 function createMockAdapter(
   generateProductShot: (
-    context: ProviderGenerateContext
+    context: ProviderGenerateContext,
+    request: ProductShotRequest
   ) => Promise<ProductShotResult[]>
 ): ProviderAdapter {
   return {
     id: "aliyun",
     validateKey: vi.fn().mockResolvedValue(true),
     getCapabilities: vi.fn(),
-    generateProductShot: vi.fn(async (_request, context) => generateProductShot(context)),
+    generateProductShot: vi.fn(async (request, context) => generateProductShot(context, request)),
     cancelJob: vi.fn().mockResolvedValue(undefined)
   };
 }
 
-function buildResult(context: ProviderGenerateContext): ProductShotResult {
-  const imagePath = path.join(context.outputDir, `${context.presetId}.png`);
+function buildResult(context: ProviderGenerateContext, index = 0): ProductShotResult {
+  const imagePath = path.join(context.outputDir, `${context.presetId}-${index + 1}.png`);
   return {
     presetId: context.presetId,
     providerId: "aliyun",
