@@ -1,7 +1,9 @@
 import path from "node:path";
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from "electron";
+import { pathToFileURL } from "node:url";
+import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, shell } from "electron";
 import { ipcChannels } from "../shared/ipc";
 import type {
+  AddPersonalGalleryItemRequest,
   ExportRequest,
   ExportVideosRequest,
   ProductShotRequest,
@@ -35,9 +37,24 @@ let backendClient: BackendClient;
 let localBackendService: LocalBackendService;
 let presenceHeartbeatTimer: NodeJS.Timeout | null = null;
 const adapters = createProviderAdapters();
+const localMediaScheme = "product-shot-media";
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: localMediaScheme,
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true
+    }
+  }
+]);
 
 async function bootstrap(): Promise<void> {
   const userDataPath = app.getPath("userData");
+  registerLocalMediaProtocol(userDataPath);
   secretStore = new SecretStore(userDataPath);
   database = new AppDatabase(userDataPath);
   await database.init();
@@ -56,15 +73,51 @@ async function bootstrap(): Promise<void> {
   createWindow();
 }
 
+function registerLocalMediaProtocol(userDataPath: string): void {
+  const mediaRoot = path.resolve(userDataPath);
+
+  protocol.handle(localMediaScheme, (request) => {
+    try {
+      const requestUrl = new URL(request.url);
+      if (requestUrl.hostname !== "file") {
+        return new Response("Not found", { status: 404 });
+      }
+
+      const filePath = path.resolve(decodeURIComponent(requestUrl.pathname.slice(1)));
+      const relativePath = path.relative(mediaRoot, filePath);
+      const isInsideMediaRoot =
+        relativePath.length === 0 || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
+
+      if (!isInsideMediaRoot) {
+        return new Response("Forbidden", { status: 403 });
+      }
+
+      return net.fetch(pathToFileURL(filePath).toString());
+    } catch {
+      return new Response("Invalid media path", { status: 400 });
+    }
+  });
+}
+
 function createWindow(): void {
+  const appIconPath = app.isPackaged
+    ? path.join(process.resourcesPath, "app-icon.png")
+    : path.join(app.getAppPath(), "build", "app-icon.png");
   mainWindow = new BrowserWindow({
     width: 1320,
     height: 860,
     minWidth: 1120,
     minHeight: 720,
     title: "Product Shot Studio",
+    icon: appIconPath,
     autoHideMenuBar: true,
     backgroundColor: "#f5f3ef",
+    titleBarStyle: "hidden",
+    titleBarOverlay: {
+      color: "#f8f3eb",
+      symbolColor: "#574b40",
+      height: 38
+    },
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -257,6 +310,22 @@ function registerIpc(): void {
     const session = accountService.requireSession();
     return database.deleteJobForever(jobId, session.userId);
   });
+  ipcMain.handle(ipcChannels.galleryList, () => {
+    const session = accountService.requireSession();
+    return database.listGalleryItems(session.userId);
+  });
+  ipcMain.handle(ipcChannels.galleryAdd, (_event, request: AddPersonalGalleryItemRequest) => {
+    const session = accountService.requireSession();
+    return database.addGalleryItem(session.userId, request);
+  });
+  ipcMain.handle(ipcChannels.galleryRemove, (_event, itemId: string) => {
+    const session = accountService.requireSession();
+    return database.removeGalleryItem(session.userId, itemId);
+  });
+  ipcMain.handle(ipcChannels.galleryReorder, (_event, itemIds: string[]) => {
+    const session = accountService.requireSession();
+    return database.reorderGalleryItems(session.userId, itemIds);
+  });
   ipcMain.handle(ipcChannels.exportSelectDir, async () => {
     const result = await dialog.showOpenDialog({
       title: "\u9009\u62e9\u9ed8\u8ba4\u5bfc\u51fa\u6587\u4ef6\u5939",
@@ -316,8 +385,12 @@ if (!hasSingleInstanceLock) {
   app.on("second-instance", () => {
     if (!mainWindow) return;
     if (mainWindow.isMinimized()) mainWindow.restore();
+    if (!mainWindow.isVisible()) mainWindow.show();
     mainWindow.focus();
   });
 
-  void app.whenReady().then(bootstrap);
+  void app.whenReady().then(() => {
+    app.setAppUserModelId("com.productshotstudio.app");
+    return bootstrap();
+  });
 }

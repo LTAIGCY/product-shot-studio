@@ -1,8 +1,15 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { app } from "electron";
 import initSqlJs, { type Database, type SqlJsStatic } from "sql.js";
-import type { StudioJob, WalletSummary, WalletTransaction } from "../../shared/types";
+import type {
+  AddPersonalGalleryItemRequest,
+  PersonalGalleryItem,
+  StudioJob,
+  WalletSummary,
+  WalletTransaction
+} from "../../shared/types";
 
 export interface StoredUser {
   id: string;
@@ -76,6 +83,22 @@ export class AppDatabase {
       );
       CREATE INDEX IF NOT EXISTS idx_wallet_transactions_user_created_at
         ON wallet_transactions(user_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS personal_gallery (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        image_path TEXT NOT NULL,
+        title TEXT NOT NULL,
+        provider_id TEXT,
+        model_id TEXT,
+        job_id TEXT,
+        preset_id TEXT,
+        sort_order INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE(user_id, image_path)
+      );
+      CREATE INDEX IF NOT EXISTS idx_personal_gallery_user_sort
+        ON personal_gallery(user_id, sort_order ASC, created_at ASC);
     `);
     await this.ensureColumn("product_jobs", "user_id", "TEXT");
     this.exec("CREATE INDEX IF NOT EXISTS idx_product_jobs_user_created_at ON product_jobs(user_id, created_at DESC)");
@@ -218,9 +241,95 @@ export class AppDatabase {
       [userId]
     );
     this.requireDb().run("DELETE FROM product_jobs WHERE user_id = ?", [userId]);
+    this.requireDb().run("DELETE FROM personal_gallery WHERE user_id = ?", [userId]);
     this.requireDb().run("DELETE FROM wallet_transactions WHERE user_id = ?", [userId]);
     this.requireDb().run("DELETE FROM local_users WHERE id = ?", [userId]);
     await this.persist();
+  }
+
+  listGalleryItems(userId: string): PersonalGalleryItem[] {
+    const result = this.requireDb().exec(
+      `
+      SELECT id, user_id, image_path, title, provider_id, model_id, job_id, preset_id, sort_order, created_at
+      FROM personal_gallery
+      WHERE user_id = ?
+      ORDER BY sort_order ASC, created_at ASC
+      `,
+      [userId]
+    );
+    if (result.length === 0) return [];
+    return result[0].values.map(mapGalleryRow);
+  }
+
+  async addGalleryItem(userId: string, request: AddPersonalGalleryItemRequest): Promise<PersonalGalleryItem> {
+    const imagePath = request.imagePath.trim();
+    if (!imagePath) {
+      throw new Error("图片路径不能为空。");
+    }
+    const existing = this.getGalleryItemByPath(userId, imagePath);
+    if (existing) return existing;
+
+    const nextOrderResult = this.requireDb().exec(
+      "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM personal_gallery WHERE user_id = ?",
+      [userId]
+    );
+    const item: PersonalGalleryItem = {
+      id: randomUUID(),
+      userId,
+      imagePath,
+      title: request.title.trim() || path.basename(imagePath),
+      providerId: request.providerId,
+      modelId: request.modelId,
+      jobId: request.jobId,
+      presetId: request.presetId,
+      sortOrder: Number(nextOrderResult[0]?.values[0]?.[0] ?? 0),
+      createdAt: new Date().toISOString()
+    };
+
+    this.requireDb().run(
+      `
+      INSERT INTO personal_gallery
+        (id, user_id, image_path, title, provider_id, model_id, job_id, preset_id, sort_order, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        item.id,
+        item.userId,
+        item.imagePath,
+        item.title,
+        item.providerId ?? null,
+        item.modelId ?? null,
+        item.jobId ?? null,
+        item.presetId ?? null,
+        item.sortOrder,
+        item.createdAt
+      ]
+    );
+    await this.persist();
+    return item;
+  }
+
+  async removeGalleryItem(userId: string, itemId: string): Promise<void> {
+    this.requireDb().run("DELETE FROM personal_gallery WHERE id = ? AND user_id = ?", [itemId, userId]);
+    await this.compactGalleryOrder(userId);
+    await this.persist();
+  }
+
+  async reorderGalleryItems(userId: string, itemIds: string[]): Promise<PersonalGalleryItem[]> {
+    const currentItems = this.listGalleryItems(userId);
+    const currentIds = new Set(currentItems.map((item) => item.id));
+    const orderedIds = Array.from(new Set(itemIds.filter((itemId) => currentIds.has(itemId))));
+    const orderedSet = new Set(orderedIds);
+    orderedIds.push(...currentItems.map((item) => item.id).filter((itemId) => !orderedSet.has(itemId)));
+
+    orderedIds.forEach((itemId, index) => {
+      this.requireDb().run(
+        "UPDATE personal_gallery SET sort_order = ? WHERE id = ? AND user_id = ?",
+        [index, itemId, userId]
+      );
+    });
+    await this.persist();
+    return this.listGalleryItems(userId);
   }
 
   async addWalletTransaction(transaction: WalletTransaction): Promise<void> {
@@ -306,6 +415,29 @@ export class AppDatabase {
     return result.length > 0 && result[0].values.length > 0;
   }
 
+  private getGalleryItemByPath(userId: string, imagePath: string): PersonalGalleryItem | null {
+    const result = this.requireDb().exec(
+      `
+      SELECT id, user_id, image_path, title, provider_id, model_id, job_id, preset_id, sort_order, created_at
+      FROM personal_gallery
+      WHERE user_id = ? AND image_path = ?
+      `,
+      [userId, imagePath]
+    );
+    if (result.length === 0 || result[0].values.length === 0) return null;
+    return mapGalleryRow(result[0].values[0]);
+  }
+
+  private async compactGalleryOrder(userId: string): Promise<void> {
+    this.listGalleryItems(userId).forEach((item, index) => {
+      if (item.sortOrder === index) return;
+      this.requireDb().run(
+        "UPDATE personal_gallery SET sort_order = ? WHERE id = ? AND user_id = ?",
+        [index, item.id, userId]
+      );
+    });
+  }
+
   private requireDb(): Database {
     if (!this.db) {
       throw new Error("Database has not been initialized.");
@@ -327,6 +459,21 @@ function mapUserRow(row: unknown[]): StoredUser {
     passwordHash: String(row[2]),
     salt: String(row[3]),
     createdAt: String(row[4])
+  };
+}
+
+function mapGalleryRow(row: unknown[]): PersonalGalleryItem {
+  return {
+    id: String(row[0]),
+    userId: String(row[1]),
+    imagePath: String(row[2]),
+    title: String(row[3]),
+    providerId: row[4] ? (String(row[4]) as PersonalGalleryItem["providerId"]) : undefined,
+    modelId: row[5] ? String(row[5]) : undefined,
+    jobId: row[6] ? String(row[6]) : undefined,
+    presetId: row[7] ? (String(row[7]) as PersonalGalleryItem["presetId"]) : undefined,
+    sortOrder: Number(row[8]),
+    createdAt: String(row[9])
   };
 }
 

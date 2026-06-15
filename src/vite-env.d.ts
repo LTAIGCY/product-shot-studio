@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 import type {
+  AddPersonalGalleryItemRequest,
   AuthCredentials,
   AuthSession,
   ExportRequest,
@@ -9,6 +10,7 @@ import type {
   GenerateProgress,
   ImportedImage,
   LocalAccountSummary,
+  PersonalGalleryItem,
   ProductShotJob,
   ProductShotRequest,
   ProviderId,
@@ -63,6 +65,10 @@ declare global {
       trashHistoryJob(jobId: string): Promise<void>;
       restoreHistoryJob(jobId: string): Promise<void>;
       deleteHistoryJobForever(jobId: string): Promise<void>;
+      listGalleryItems(): Promise<PersonalGalleryItem[]>;
+      addGalleryItem(request: AddPersonalGalleryItemRequest): Promise<PersonalGalleryItem>;
+      removeGalleryItem(itemId: string): Promise<void>;
+      reorderGalleryItems(itemIds: string[]): Promise<PersonalGalleryItem[]>;
       selectExportFolder(): Promise<string>;
       exportImages(request: ExportRequest): Promise<ExportResponse>;
       exportVideos(request: ExportVideosRequest): Promise<ExportResponse>;

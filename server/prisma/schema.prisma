@@ -8,22 +8,25 @@ datasource db {
 }
 
 model User {
-  id            String              @id @default(uuid())
-  username      String              @unique
-  passwordHash  String              @map("password_hash")
-  passwordSalt  String              @map("password_salt")
-  passwordAlgo  String              @default("scrypt") @map("password_algo")
-  status        String              @default("active")
-  createdAt     DateTime            @default(now()) @map("created_at")
-  lastLoginAt   DateTime?           @map("last_login_at")
-  lastSeenAt    DateTime?           @map("last_seen_at")
-  lastLogoutAt  DateTime?           @map("last_logout_at")
-  wallet        Wallet?
-  transactions  WalletTransaction[]
-  jobs          GenerationJob[]
-  reservations  UsageReservation[]
-  auditEvents   AuditEvent[]
+  id                String              @id @default(uuid())
+  accountId         String              @unique @map("account_id")
+  username          String
+  passwordHash      String              @map("password_hash")
+  passwordSalt      String              @map("password_salt")
+  passwordAlgo      String              @default("scrypt") @map("password_algo")
+  passwordUpdatedAt DateTime            @default(now()) @map("password_updated_at")
+  status            String              @default("active")
+  createdAt         DateTime            @default(now()) @map("created_at")
+  lastLoginAt       DateTime?           @map("last_login_at")
+  lastSeenAt        DateTime?           @map("last_seen_at")
+  lastLogoutAt      DateTime?           @map("last_logout_at")
+  wallet            Wallet?
+  transactions      WalletTransaction[]
+  jobs              GenerationJob[]
+  reservations      UsageReservation[]
+  auditEvents       AuditEvent[]
 
+  @@index([username])
   @@map("users")
 }
 

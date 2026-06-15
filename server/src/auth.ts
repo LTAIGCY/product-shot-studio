@@ -3,6 +3,7 @@ import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypt
 export interface UserTokenPayload {
   kind: "user";
   userId: string;
+  accountId?: string;
   username: string;
   createdAt: string;
   exp: number;
@@ -16,14 +17,23 @@ export interface AdminTokenPayload {
 export type TokenPayload = UserTokenPayload | AdminTokenPayload;
 
 export function normalizeUsername(value: string): string {
-  const username = String(value ?? "").trim().toLowerCase();
-  if (!/^[a-z0-9_@.-]{3,48}$/.test(username)) {
-    throw httpError(
-      400,
-      "账号需要 3-48 位，可使用字母、数字、下划线、点、横线或 @，且不能包含空格。"
-    );
+  const username = String(value ?? "").trim().replace(/\s+/g, " ").toLocaleLowerCase("zh-CN");
+  if (username.length < 1 || username.length > 48 || /[\u0000-\u001f\u007f]/.test(username)) {
+    throw httpError(400, "账号名需要 1-48 位，不能包含控制字符。");
   }
   return username;
+}
+
+export function normalizeAccountId(value: string): string {
+  const accountId = String(value ?? "").trim().toLowerCase();
+  if (!/^[a-z0-9_@.-]{3,64}$/.test(accountId)) {
+    throw httpError(400, "账号 ID 格式不正确。");
+  }
+  return accountId;
+}
+
+export function createAccountId(): string {
+  return `ps_${randomBytes(6).toString("hex")}`;
 }
 
 export function assertPassword(password: string): void {
@@ -75,6 +85,7 @@ export function verifyToken<T extends TokenPayload>(token: string, secret: strin
 
 export function createUserToken(input: {
   userId: string;
+  accountId: string;
   username: string;
   createdAt: Date | string;
   secret: string;
@@ -83,6 +94,7 @@ export function createUserToken(input: {
     {
       kind: "user",
       userId: input.userId,
+      accountId: input.accountId,
       username: input.username,
       createdAt: new Date(input.createdAt).toISOString(),
       exp: Date.now() + 1000 * 60 * 60 * 24 * 30

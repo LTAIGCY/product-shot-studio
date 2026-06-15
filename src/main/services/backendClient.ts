@@ -118,6 +118,7 @@ export class BackendClient {
     const remembered = await this.getRememberedSession();
     return accounts.map((account) => ({
       userId: account.userId,
+      accountId: account.accountId ?? account.username,
       username: account.username,
       createdAt: account.createdAt,
       remembered: account.userId === remembered?.userId
@@ -293,6 +294,7 @@ export class BackendClient {
       const raw = await fs.readFile(this.sessionPath, "utf8");
       const parsed = JSON.parse(raw) as StoredSession;
       if (!parsed.token || !parsed.session?.userId) return null;
+      parsed.session.accountId = parsed.session.accountId ?? parsed.session.username;
       return parsed;
     } catch {
       return null;
@@ -308,6 +310,7 @@ export class BackendClient {
     const accounts = await this.readCachedAccounts();
     const next: CachedAccount = {
       userId: session.userId,
+      accountId: session.accountId,
       username: session.username,
       createdAt: session.createdAt,
       remembered: true,

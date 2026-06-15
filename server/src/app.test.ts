@@ -32,28 +32,67 @@ afterAll(async () => {
 });
 
 describe("Product Shot Studio ledger backend", () => {
-  it("registers unique users and rejects duplicate usernames", async () => {
+  it("creates unique account IDs while allowing duplicate account names", async () => {
     const first = await register("Alice", "secret123");
     expect(first.statusCode).toBe(200);
     expect(first.json().session.username).toBe("alice");
+    expect(first.json().session.accountId).toMatch(/^ps_[a-f0-9]{12}$/);
 
     const duplicate = await register(" alice ", "secret123");
-    expect(duplicate.statusCode).toBe(409);
-    expect(duplicate.json().message).toContain("该账号已存在");
+    expect(duplicate.statusCode).toBe(200);
+    expect(duplicate.json().session.username).toBe("alice");
+    expect(duplicate.json().session.accountId).not.toBe(first.json().session.accountId);
+
+    const ambiguous = await login("alice", "secret123");
+    expect(ambiguous.statusCode).toBe(409);
+    expect(ambiguous.json().message).toContain("唯一账号 ID");
+
+    const byAccountId = await login(first.json().session.accountId, "secret123");
+    expect(byAccountId.statusCode).toBe(200);
   });
 
   it("hashes passwords and validates login", async () => {
-    await register("bob", "secret123");
-    const stored = await prisma.user.findUnique({ where: { username: "bob" } });
+    const registered = await register("bob", "secret123");
+    const accountId = registered.json().session.accountId;
+    const stored = await prisma.user.findUnique({ where: { accountId } });
     expect(stored?.passwordHash).not.toBe("secret123");
     expect(stored?.passwordSalt).toBeTruthy();
 
-    const failed = await login("bob", "wrong-password");
+    const failed = await login(accountId, "wrong-password");
     expect(failed.statusCode).toBe(401);
 
-    const success = await login("bob", "secret123");
+    const success = await login(accountId, "secret123");
     expect(success.statusCode).toBe(200);
     expect(success.json().token).toBeTruthy();
+  });
+
+  it("exposes safe password metadata and lets an administrator reset a password", async () => {
+    const registered = await register("reset-user", "secret123");
+    const accountId = registered.json().session.accountId;
+    const user = await prisma.user.findUniqueOrThrow({ where: { accountId } });
+    const adminAuthToken = await adminToken();
+
+    const users = await app.inject({
+      method: "GET",
+      url: "/admin/users",
+      headers: { authorization: `Bearer ${adminAuthToken}` }
+    });
+    const item = users.json().items[0];
+    expect(item.accountId).toBe(accountId);
+    expect(item.password.masked).toBe("••••••••");
+    expect(item.password.algorithm).toBe("scrypt");
+    expect(item.password.passwordHash).toBeUndefined();
+
+    const reset = await app.inject({
+      method: "POST",
+      url: `/admin/users/${user.id}/reset-password`,
+      headers: { authorization: `Bearer ${adminAuthToken}` },
+      payload: { password: "new-secret-456" }
+    });
+    expect(reset.statusCode).toBe(200);
+
+    expect((await login(accountId, "secret123")).statusCode).toBe(401);
+    expect((await login(accountId, "new-secret-456")).statusCode).toBe(200);
   });
 
   it("recharges, reserves, commits usage and exposes admin overview", async () => {

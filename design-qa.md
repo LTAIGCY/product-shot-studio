@@ -226,3 +226,53 @@ final result: passed
 - `npm.cmd test`: 7 files passed, 28 tests passed.
 - `npm.cmd run build`: passed.
 - `git diff --check -- src/renderer/src/App.tsx src/renderer/src/styles.css design-qa.md`: passed, with only Git line-ending warnings.
+
+## Integrated Window Title Bar QA - 2026-06-13
+
+- Replaced the visually separate Windows title strip with a 38px cream title bar integrated into the application surface.
+- Preserved the native Windows minimize, maximize/restore, and close controls in the top-right corner.
+- Added compact application and current-page labels without introducing a second toolbar or changing the existing workspace navigation.
+- Verified the title bar in the running Electron application at a DPI-aware 2582 x 1550 capture. The title bar, left navigation, command area, workflow steps, upload surface, configuration panel, and result area render without overlap.
+- Compared the implementation screenshot with the supplied Codex title-bar reference. The new bar follows the same low-contrast, continuous-window direction while retaining Product Shot Studio's cream and cognac palette.
+- Screenshot checked: `C:\Users\Gcy\Documents\Codex\2026-06-03\goal\product-shot-studio-dev\.runtime-logs\titlebar-preview-dpi.png`.
+
+## Integrated Window Title Bar Verification - 2026-06-13
+
+- `npm.cmd run typecheck`: passed.
+- `npm.cmd test`: 8 files passed, 34 tests passed.
+- Electron development application: running successfully.
+
+## History Preview / Windows Brand Icon QA - 2026-06-14
+
+- History image jobs with results now restore the task results and open the first generated image in the existing full preview dialog without leaving Personal Center.
+- Failed image jobs with no generated results still open the image workspace so their error state can be inspected and retried.
+- The Windows window icon, taskbar icon, portable executable, and installer now use the cream/cognac Sparkles brand mark shown in the application navigation.
+- The icon asset is generated at 512 x 512 and included as an application resource for packaged builds.
+
+## History Preview / Windows Brand Icon Verification - 2026-06-14
+
+- `npm.cmd run build:icon`: passed.
+- `npm.cmd run typecheck`: passed.
+- `npm.cmd test`: 8 files passed, 34 tests passed.
+- `npm.cmd run build`: passed.
+- `git diff --check`: passed, with only Git line-ending warnings.
+
+## Personal Gallery / Ecommerce Ordering / Comparison QA - 2026-06-14
+
+- Added the `个人图库` navigation entry directly below `视频生成`, using the existing cream and cognac workspace styling.
+- Generated image cards can be added to the current account's gallery without leaving the image workflow. Existing gallery items display a clear collected state.
+- Personal Center image history rows can add all successful results from a task to the gallery. Failed tasks without results do not expose an invalid collection action.
+- Gallery data is stored per local account in SQLite. The same image is deduplicated for one account, while another account keeps an independent gallery.
+- Gallery cards show explicit ecommerce publishing sequence numbers and support drag-and-drop ordering plus precise previous/next controls.
+- Ordering persists in the database, and removing an item compacts the remaining sequence without gaps.
+- Selecting two or more gallery images opens the existing professional comparison viewer, retaining zoom, pan, layout, ordering, editing, and save behavior.
+- Clicking a gallery image opens the complete image preview instead of navigating back to the image generation page.
+- Single-image preview now starts in a true fit-to-window state: the complete image is centered inside the available preview frame, regardless of portrait, landscape, or square ratio.
+- Wheel zoom uses the pointer position relative to the centered canvas, while double-click and the reset button return to the complete fit-to-window view.
+
+## Personal Gallery Verification - 2026-06-14
+
+- `npm.cmd run typecheck`: passed.
+- `npm.cmd test`: 9 files passed, 36 tests passed.
+- `npm.cmd run build`: passed.
+- `git diff --check`: passed, with only Git line-ending warnings.
