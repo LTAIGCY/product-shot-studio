@@ -1,6 +1,6 @@
 {
   "name": "product-shot-studio",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "private": true,
   "description": "Windows desktop MVP for generating commercial product showcase images with mainstream image models.",
   "author": "Product Shot Studio",
@@ -20,7 +20,9 @@
     "build": "npm run server:build && npm run build:main && npm run build:renderer",
     "build:main": "tsc -p tsconfig.main.json",
     "build:renderer": "vite build",
-    "package:win": "npm run build && electron-builder --win dir --x64 && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-win-zip.ps1",
+    "build:icon": "electron scripts/generate-app-icon.cjs",
+    "prepackage:win": "npm run build:icon",
+    "package:win": "npm run build && electron-builder --win --x64 && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-win-zip.ps1",
     "ensure:electron": "node scripts/ensure-electron.cjs",
     "live:smoke": "npm run build && node scripts/live-smoke.cjs",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.main.json",
@@ -85,13 +87,30 @@
       {
         "from": "server/prisma",
         "to": "backend/prisma"
+      },
+      {
+        "from": "build/app-icon.png",
+        "to": "app-icon.png"
       }
     ],
     "win": {
+      "icon": "build/app-icon.png",
       "signAndEditExecutable": false,
       "target": [
         {
           "target": "dir",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "nsis",
           "arch": [
             "x64"
           ]
@@ -100,8 +119,19 @@
       "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "portable": {
-      "artifactName": "${productName}-${version}-${arch}.${ext}"
+      "artifactName": "${productName}-${version}-portable-${arch}.${ext}"
     },
+    "nsis": {
+      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Product Shot Studio",
+      "runAfterFinish": true
+    },
+    "npmRebuild": false,
     "asar": true
   }
 }

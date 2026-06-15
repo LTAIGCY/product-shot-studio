@@ -3,6 +3,7 @@ import { Prisma, type PrismaClient, type User, type Wallet, type WalletTransacti
 import { renderAdminHtml } from "./adminHtml";
 import {
   assertPassword,
+  createAccountId,
   createAdminToken,
   createPasswordRecord,
   createUserToken,
@@ -14,7 +15,15 @@ import {
   type AdminTokenPayload,
   type UserTokenPayload
 } from "./auth";
-import type { AdminAdjustBody, AuthBody, CancelBody, CommitBody, RechargeBody, ReserveBody } from "./types";
+import type {
+  AdminAdjustBody,
+  AdminResetPasswordBody,
+  AuthBody,
+  CancelBody,
+  CommitBody,
+  RechargeBody,
+  ReserveBody
+} from "./types";
 
 export interface CreateAppOptions {
   prisma: PrismaClient;
@@ -24,6 +33,7 @@ export interface CreateAppOptions {
 
 interface UserContext {
   userId: string;
+  accountId: string;
   username: string;
   createdAt: string;
 }
@@ -58,46 +68,71 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
     assertPassword(body.password ?? "");
     const passwordRecord = createPasswordRecord(body.password ?? "");
     const now = new Date();
-    try {
-      const user = await prisma.user.create({
-        data: {
-          username,
-          ...passwordRecord,
-          lastLoginAt: now,
-          lastSeenAt: now,
-          wallet: {
-            create: {}
-          },
-          auditEvents: {
-            create: {
-              action: "user.register",
-              ip: request.ip
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      try {
+        const accountId = createAccountId();
+        const user = await prisma.user.create({
+          data: {
+            accountId,
+            username,
+            ...passwordRecord,
+            passwordUpdatedAt: now,
+            lastLoginAt: now,
+            lastSeenAt: now,
+            wallet: {
+              create: {}
+            },
+            auditEvents: {
+              create: {
+                action: "user.register",
+                ip: request.ip,
+                metadataJson: JSON.stringify({ accountId })
+              }
             }
           }
-        }
-      });
-      return {
-        token: createUserToken({ userId: user.id, username: user.username, createdAt: user.createdAt, secret: tokenSecret }),
-        session: toSession(user)
-      };
-    } catch (error) {
-      if (isUniqueViolation(error)) {
-        throw httpError(409, "该账号已存在。");
+        });
+        return {
+          token: createUserToken({
+            userId: user.id,
+            accountId: user.accountId,
+            username: user.username,
+            createdAt: user.createdAt,
+            secret: tokenSecret
+          }),
+          session: toSession(user)
+        };
+      } catch (error) {
+        if (isUniqueViolation(error) && attempt < 4) continue;
+        throw error;
       }
-      throw error;
     }
+    throw httpError(500, "账号 ID 生成失败，请稍后重试。");
   });
 
   app.post("/api/auth/login", async (request) => {
     const body = request.body as AuthBody;
-    const username = normalizeUsername(body.username ?? "");
-    const user = await prisma.user.findUnique({ where: { username } });
+    const locator = String(body.accountId ?? body.username ?? "").trim();
+    if (!locator) throw httpError(400, "请输入账号 ID 或账号名。");
+    const normalizedLocator = locator.toLowerCase();
+    let user = await prisma.user.findUnique({ where: { accountId: normalizedLocator } });
+    if (!user) {
+      const username = normalizeUsername(locator);
+      const matches = await prisma.user.findMany({
+        where: { username },
+        orderBy: { createdAt: "asc" },
+        take: 2
+      });
+      if (matches.length > 1) {
+        throw httpError(409, "该账号名对应多个账号，请使用唯一账号 ID 登录。");
+      }
+      user = matches[0] ?? null;
+    }
     if (!user || user.status !== "active" || !verifyPassword(body.password ?? "", user.passwordSalt, user.passwordHash)) {
       await writeAudit(prisma, {
         userId: user?.id,
         action: "auth.login_failed",
         ip: request.ip,
-        metadata: { username }
+        metadata: { locator }
       });
       throw httpError(401, "账号或密码不正确。");
     }
@@ -118,6 +153,7 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
     return {
       token: createUserToken({
         userId: updatedUser.id,
+        accountId: updatedUser.accountId,
         username: updatedUser.username,
         createdAt: updatedUser.createdAt,
         secret: tokenSecret
@@ -131,6 +167,7 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
     return {
       session: {
         userId: user.userId,
+        accountId: user.accountId,
         username: user.username,
         createdAt: user.createdAt
       }
@@ -427,6 +464,7 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
       prisma.user.findMany({
         select: {
           status: true,
+          accountId: true,
           lastSeenAt: true,
           lastLogoutAt: true
         }
@@ -474,17 +512,19 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
 
   app.get("/admin/users", async (request) => {
     requireAdmin(request, tokenSecret);
-    const limit = clampLimit((request.query as { limit?: string | number }).limit, 100);
+    const requestedLimit = (request.query as { limit?: string | number }).limit;
     const items = await prisma.user.findMany({
       include: { wallet: true },
       orderBy: { createdAt: "desc" },
-      take: limit
+      take: requestedLimit === undefined ? undefined : clampLimit(requestedLimit, 100)
     });
     return {
       items: items.map((user) => ({
         id: user.id,
+        accountId: user.accountId,
         username: user.username,
         status: user.status,
+        password: mapPasswordStatus(user),
         ...mapPresence(user),
         createdAt: user.createdAt.toISOString(),
         lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
@@ -502,8 +542,10 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
     if (!user) throw httpError(404, "用户不存在。");
     return {
       id: user.id,
+      accountId: user.accountId,
       username: user.username,
       status: user.status,
+      password: mapPasswordStatus(user),
       ...mapPresence(user),
       createdAt: user.createdAt.toISOString(),
       lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
@@ -601,6 +643,35 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
     };
   });
 
+  app.post<{ Params: { id: string } }>("/admin/users/:id/reset-password", async (request) => {
+    requireAdmin(request, tokenSecret);
+    const body = request.body as AdminResetPasswordBody;
+    const password = String(body.password ?? "");
+    assertPassword(password);
+    const passwordRecord = createPasswordRecord(password);
+    const user = await prisma.user.findUnique({ where: { id: request.params.id } });
+    if (!user) throw httpError(404, "用户不存在。");
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        ...passwordRecord,
+        passwordUpdatedAt: new Date(),
+        auditEvents: {
+          create: {
+            action: "admin.reset_password",
+            ip: request.ip,
+            metadataJson: JSON.stringify({ accountId: user.accountId })
+          }
+        }
+      }
+    });
+    return {
+      ok: true,
+      accountId: updatedUser.accountId,
+      password: mapPasswordStatus(updatedUser)
+    };
+  });
+
   return app;
 }
 
@@ -609,7 +680,12 @@ async function requireUser(prisma: PrismaClient, request: FastifyRequest, secret
   if (payload.kind !== "user") throw httpError(401, "请先登录。");
   const user = await prisma.user.findUnique({ where: { id: payload.userId } });
   if (!user || user.status !== "active") throw httpError(401, "账号不可用，请重新登录。");
-  return { userId: user.id, username: user.username, createdAt: user.createdAt.toISOString() };
+  return {
+    userId: user.id,
+    accountId: user.accountId,
+    username: user.username,
+    createdAt: user.createdAt.toISOString()
+  };
 }
 
 function requireAdmin(request: FastifyRequest, secret: string): void {
@@ -647,11 +723,26 @@ async function writeAudit(
   });
 }
 
-function toSession(user: User): { userId: string; username: string; createdAt: string } {
+function toSession(user: User): { userId: string; accountId: string; username: string; createdAt: string } {
   return {
     userId: user.id,
+    accountId: user.accountId,
     username: user.username,
     createdAt: user.createdAt.toISOString()
+  };
+}
+
+function mapPasswordStatus(user: {
+  passwordHash: string;
+  passwordSalt: string;
+  passwordAlgo: string;
+  passwordUpdatedAt: Date;
+}) {
+  return {
+    configured: Boolean(user.passwordHash && user.passwordSalt),
+    masked: "••••••••",
+    algorithm: user.passwordAlgo,
+    updatedAt: user.passwordUpdatedAt.toISOString()
   };
 }
 

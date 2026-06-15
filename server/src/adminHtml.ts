@@ -59,6 +59,8 @@ export function renderAdminHtml(): string {
     .layout { display: grid; grid-template-columns: 1.12fr 1fr; gap: 14px; }
     .layout-wide { display: grid; grid-template-columns: 1fr; gap: 14px; margin-top: 14px; }
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .table-scroll { overflow: auto; }
+    .users-table { min-width: 1460px; }
     th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
     th { color: var(--muted); font-weight: 700; white-space: nowrap; }
     td { word-break: break-word; }
@@ -82,6 +84,9 @@ export function renderAdminHtml(): string {
     .account-disabled { background: #fff2ed; color: var(--danger); }
     .message { color: var(--danger); min-height: 22px; margin-top: 10px; }
     .hint { color: var(--muted); font-size: 13px; margin: -6px 0 14px; }
+    .password-meta { display: grid; gap: 3px; min-width: 150px; }
+    .password-meta small { color: var(--muted); }
+    button.mini-button { padding: 7px 10px; border-radius: 9px; font-size: 12px; white-space: nowrap; }
     .hidden { display: none; }
     @media (max-width: 1100px) {
       .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -120,13 +125,19 @@ export function renderAdminHtml(): string {
       <div class="layout">
         <div class="panel">
           <h2>用户列表</h2>
-          <p class="hint">账号状态表示账号是否被启用；在线状态由桌面端心跳判断，超过约 90 秒没有心跳会显示离线。</p>
-          <table>
-            <thead>
-              <tr><th>账号</th><th>在线状态</th><th>最后在线</th><th>余额</th><th>冻结</th><th>充值 / 消耗</th><th>账号状态</th></tr>
-            </thead>
-            <tbody id="users"></tbody>
-          </table>
+          <p class="hint">账号 ID 永久唯一，账号名允许重复。密码只保存不可逆哈希，后台可查看加密状态并重置，但不会泄露原密码。</p>
+          <div class="table-scroll">
+            <table class="users-table">
+              <thead>
+                <tr>
+                  <th>账号 ID</th><th>账号名</th><th>密码状态</th><th>在线状态</th>
+                  <th>最后登录</th><th>最后在线</th><th>最后下线</th><th>余额</th>
+                  <th>冻结</th><th>充值 / 消耗</th><th>账号状态</th><th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="users"></tbody>
+            </table>
+          </div>
         </div>
         <div class="panel">
           <h2>失败任务</h2>
@@ -182,6 +193,20 @@ export function renderAdminHtml(): string {
       return data;
     }
 
+    async function apiPost(path, body) {
+      const res = await fetch(path, {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer " + localStorage.getItem(tokenKey),
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || "请求失败");
+      return data;
+    }
+
     async function load() {
       try {
         const [overview, users, jobs, recharges, auditEvents] = await Promise.all([
@@ -213,7 +238,26 @@ export function renderAdminHtml(): string {
     }
 
     function renderUser(user) {
-      return "<tr><td>" + text(user.username) + "</td><td>" + presenceBadge(user) + "</td><td>" + date(user.lastSeenAt) + "</td><td>" + fmt(user.wallet.balancePoints) + "</td><td>" + fmt(user.wallet.reservedPoints) + "</td><td>" + fmt(user.wallet.totalRechargedPoints) + " / " + fmt(user.wallet.totalUsedPoints) + "</td><td>" + accountBadge(user.status) + "</td></tr>";
+      return "<tr>" +
+        "<td><strong>" + text(user.accountId) + "</strong></td>" +
+        "<td>" + text(user.username) + "</td>" +
+        "<td>" + passwordStatus(user.password) + "</td>" +
+        "<td>" + presenceBadge(user) + "</td>" +
+        "<td>" + date(user.lastLoginAt) + "</td>" +
+        "<td>" + date(user.lastSeenAt) + "</td>" +
+        "<td>" + date(user.lastLogoutAt) + "</td>" +
+        "<td>" + fmt(user.wallet.balancePoints) + "</td>" +
+        "<td>" + fmt(user.wallet.reservedPoints) + "</td>" +
+        "<td>" + fmt(user.wallet.totalRechargedPoints) + " / " + fmt(user.wallet.totalUsedPoints) + "</td>" +
+        "<td>" + accountBadge(user.status) + "</td>" +
+        "<td><button class='mini-button secondary' data-reset-password='" + text(user.id) + "' data-account-id='" + text(user.accountId) + "'>重置密码</button></td>" +
+        "</tr>";
+    }
+
+    function passwordStatus(password) {
+      if (!password?.configured) return "<span class='status-failed'>未设置</span>";
+      return "<span class='password-meta'><strong>" + text(password.masked) + "</strong><small>" +
+        text(password.algorithm) + " · " + date(password.updatedAt) + "</small></span>";
     }
 
     function presenceBadge(user) {
@@ -248,7 +292,8 @@ export function renderAdminHtml(): string {
         "usage.cancel": "取消/失败释放",
         "admin.login": "管理员登录",
         "admin.login_failed": "后台登录失败",
-        "admin.adjust_points": "管理员调分"
+        "admin.adjust_points": "管理员调分",
+        "admin.reset_password": "管理员重置密码"
       };
       return labels[action] || action;
     }
@@ -273,6 +318,24 @@ export function renderAdminHtml(): string {
       load();
       startLiveMonitor();
     }
+
+    document.addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-reset-password]");
+      if (!button) return;
+      const accountId = button.dataset.accountId;
+      const password = window.prompt("为账号 " + accountId + " 输入新密码（6-128 位）。原密码无法查看。");
+      if (password === null) return;
+      try {
+        button.disabled = true;
+        await apiPost("/admin/users/" + encodeURIComponent(button.dataset.resetPassword) + "/reset-password", { password });
+        window.alert("密码已重置。请立即安全地告知用户；此密码不会在后台再次显示。");
+        await load();
+      } catch (error) {
+        $("message").textContent = error.message;
+      } finally {
+        button.disabled = false;
+      }
+    });
   </script>
 </body>
 </html>`;

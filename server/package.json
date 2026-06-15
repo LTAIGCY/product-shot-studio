@@ -1,6 +1,6 @@
 {
   "name": "product-shot-studio-server",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": true,
   "description": "Local ledger and monitoring backend for Product Shot Studio.",
   "type": "commonjs",

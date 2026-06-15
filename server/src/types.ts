@@ -1,4 +1,5 @@
 export interface AuthBody {
+  accountId?: string;
   username?: string;
   password?: string;
 }
@@ -41,4 +42,8 @@ export interface CancelBody {
 export interface AdminAdjustBody {
   amountPoints?: number;
   note?: string;
+}
+
+export interface AdminResetPasswordBody {
+  password?: string;
 }

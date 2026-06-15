@@ -52,6 +52,28 @@ export interface ProductShotResult {
   createdAt: string;
 }
 
+export interface PersonalGalleryItem {
+  id: string;
+  userId: string;
+  imagePath: string;
+  title: string;
+  providerId?: ProviderId;
+  modelId?: string;
+  jobId?: string;
+  presetId?: PresetId;
+  sortOrder: number;
+  createdAt: string;
+}
+
+export interface AddPersonalGalleryItemRequest {
+  imagePath: string;
+  title: string;
+  providerId?: ProviderId;
+  modelId?: string;
+  jobId?: string;
+  presetId?: PresetId;
+}
+
 export interface ProductShotJob {
   id: string;
   userId?: string;
@@ -150,12 +172,14 @@ export interface ProviderConfig {
 
 export interface AuthSession {
   userId: string;
+  accountId: string;
   username: string;
   createdAt: string;
 }
 
 export interface LocalAccountSummary {
   userId: string;
+  accountId: string;
   username: string;
   createdAt: string;
   remembered: boolean;

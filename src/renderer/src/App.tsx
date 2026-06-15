@@ -11,6 +11,8 @@ import {
 } from "react";
 import {
   AlertCircle,
+  ArrowLeft,
+  ArrowRight,
   Check,
   ChevronDown,
   ChevronUp,
@@ -19,10 +21,12 @@ import {
   Download,
   Edit3,
   FolderOpen,
+  FolderPlus,
   GripVertical,
   HelpCircle,
   History,
   ImagePlus,
+  Images,
   KeyRound,
   LayoutGrid,
   Loader2,
@@ -56,10 +60,11 @@ import {
 } from "@shared/videoModels";
 import { updateAnnouncements } from "@shared/updateAnnouncements";
 import loginStudioIllustrationUrl from "../assets/login-studio-illustration.png";
-import tutorialApiConfigUrl from "../assets/tutorial-api-config.png";
-import tutorialImportUrl from "../assets/tutorial-import.png";
-import tutorialResultsUrl from "../assets/tutorial-results.png";
-import tutorialTroubleshootingUrl from "../assets/tutorial-troubleshooting.png";
+import tutorialCurrentHistoryUrl from "../assets/tutorial-current-history.png";
+import tutorialCurrentModelConfigUrl from "../assets/tutorial-current-model-config.png";
+import tutorialCurrentPreviewUrl from "../assets/tutorial-current-preview.png";
+import tutorialCurrentUpdatesUrl from "../assets/tutorial-current-updates.png";
+import tutorialCurrentWorkspaceUrl from "../assets/tutorial-current-workspace.png";
 import workflowStudioIllustrationUrl from "../assets/workflow-studio-illustration.png";
 import {
   estimateRequestCostCents,
@@ -78,6 +83,7 @@ import type {
   ImageQuality,
   ImportedImage,
   LocalAccountSummary,
+  PersonalGalleryItem,
   PresetId,
   ProductShotJob,
   ProductShotResult,
@@ -94,7 +100,7 @@ import type {
 
 const aspectRatios: AspectRatio[] = ["1:1", "4:5", "16:9", "3:2"];
 const exportFormats: ExportFormat[] = ["png", "jpg", "webp"];
-type AppPage = "image" | "video" | "personal" | "updates" | "settings";
+type AppPage = "image" | "video" | "gallery" | "personal" | "updates" | "settings";
 type PersonalCenterTab = "overview" | "history" | "recharge" | "transactions" | "trash";
 type StatusTone = "normal" | "warn";
 type ExportFeedback = "idle" | "running" | "done";
@@ -106,6 +112,12 @@ type PreviewImage = {
   title: string;
   subtitle?: string;
   fileName?: string;
+};
+type ComparisonLibrarySource = "current" | "history" | "gallery";
+type ComparisonLibraryImage = PreviewImage & {
+  libraryId: string;
+  source: ComparisonLibrarySource;
+  createdAt: string;
 };
 type PreviewCompareItem = PreviewImage & {
   id: string;
@@ -145,6 +157,7 @@ const uiText = {
   tagline: "AI \u5546\u62cd\u56fe\u5de5\u4f5c\u53f0",
   imagePage: "\u56fe\u7247\u751f\u6210",
   videoPage: "\u89c6\u9891\u751f\u6210",
+  galleryPage: "个人图库",
   historyPage: "\u5386\u53f2\u4f5c\u54c1",
   billingPage: "\u5145\u503c\u79ef\u5206",
   updatesPage: "\u66f4\u65b0\u516c\u544a",
@@ -279,6 +292,10 @@ const uiText = {
   deleteAccount: "\u5220\u9664\u8d26\u53f7",
   accountDeleted: "\u8d26\u53f7\u5df2\u5220\u9664",
   accountCreatedAt: "\u521b\u5efa\u4e8e",
+  accountId: "账号 ID",
+  loginAccount: "账号 ID / 账号名",
+  displayName: "账号名",
+  duplicateNameHint: "账号名可以重复；创建后请记住系统分配的唯一账号 ID。",
   emptyAccounts: "\u8fd8\u6ca1\u6709\u672c\u5730\u8d26\u53f7",
   loginHeroTitle: "\u628a\u666e\u901a\u4ea7\u54c1\u7167\u53d8\u6210\u5546\u7528\u5927\u7247",
   loginHeroSubtitle: "\u672c\u5730\u8d26\u53f7\u3001\u56fd\u5185\u5927\u6a21\u578b\u3001\u6279\u91cf\u5546\u62cd\u56fe\u751f\u6210\uff0c\u5bc6\u94a5\u53ea\u7559\u5728\u4f60\u7684\u7535\u8111\u4e0a\u3002",
@@ -326,7 +343,7 @@ const uiText = {
   tutorial: "\u6559\u7a0b",
   tutorialTitle: "\u4f7f\u7528\u6559\u7a0b\u4e0e\u5e38\u89c1\u95ee\u9898",
   tutorialIntroTitle: "\u8f6f\u4ef6\u4ecb\u7ecd",
-  tutorialIntro: "Product Shot Studio \u662f\u4e00\u4e2a Windows AI \u5546\u62cd\u5de5\u4f5c\u53f0\uff0c\u7528\u666e\u901a\u4ea7\u54c1\u7167\u751f\u6210\u767d\u5e95\u4e3b\u56fe\u3001\u751f\u6d3b\u573a\u666f\u56fe\u3001\u8d28\u611f\u7279\u5199\u56fe\u548c\u8425\u9500\u6a2a\u56fe\u3002\u5bc6\u94a5\u4ecd\u4fdd\u7559\u5728\u684c\u9762\u7aef\uff0c\u8d26\u53f7\u3001\u79ef\u5206\u548c\u5145\u503c\u6d41\u6c34\u7531\u672c\u5730\u8d26\u672c\u670d\u52a1\u7edf\u4e00\u8bb0\u5f55\u3002",
+  tutorialIntro: "Product Shot Studio 是 Windows AI 商拍工作台，可从普通产品照生成白底图、场景图、特写图、营销图和商品海报，并通过个人图库完成筛选、排序与对比。下面的界面截图来自当前版本，点击图片可以放大查看操作位置。",
   tutorialFlow: "\u57fa\u672c\u6d41\u7a0b",
   tutorialFaq: "\u5e38\u89c1\u95ee\u9898",
   tutorialTip: "\u5c0f\u63d0\u793a",
@@ -473,6 +490,8 @@ export function App() {
   const [activeImagePath, setActiveImagePath] = useState<string | null>(null);
   const [history, setHistory] = useState<StudioJob[]>([]);
   const [trashedHistory, setTrashedHistory] = useState<StudioJob[]>([]);
+  const [galleryItems, setGalleryItems] = useState<PersonalGalleryItem[]>([]);
+  const [selectedGalleryIds, setSelectedGalleryIds] = useState<string[]>([]);
   const [activeJob, setActiveJob] = useState<ProductShotJob | null>(null);
   const [sessionImageResults, setSessionImageResults] = useState<ProductShotResult[]>([]);
   const [activeVideoJob, setActiveVideoJob] = useState<VideoGenerationJob | null>(null);
@@ -486,12 +505,15 @@ export function App() {
   const [statusTone, setStatusTone] = useState<StatusTone>("normal");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [exportFeedback, setExportFeedback] = useState<ExportFeedback>("idle");
+  const [imageExportCompleted, setImageExportCompleted] = useState(false);
+  const [videoExportCompleted, setVideoExportCompleted] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [pendingGenerateMode, setPendingGenerateMode] = useState<GenerateMode | null>(null);
   const [defaultExportDir, setDefaultExportDir] = useState("");
   const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null);
+  const [previewComparisonImages, setPreviewComparisonImages] = useState<PreviewImage[]>([]);
   const [modelSectionCollapsed, setModelSectionCollapsed] = useState(false);
 
   function updateExportFormat(format: ExportFormat) {
@@ -518,6 +540,10 @@ export function App() {
 
   const configuredProvider = keyStatus.find((item) => item.providerId === providerId)?.configured ?? false;
   const results = sessionImageResults;
+  const comparisonLibraryImages = useMemo(
+    () => buildComparisonLibraryImages(sessionImageResults, history, galleryItems),
+    [sessionImageResults, history, galleryItems]
+  );
   const failedPresetIds = useMemo(() => getFailedPresetIds(activeJob), [activeJob]);
   const canRetryFailed = Boolean(activeJob && failedPresetIds.length > 0 && !isGenerating);
   const activeImage = importedImages.find((image) => image.sourceImagePath === activeImagePath) ?? importedImages[0] ?? null;
@@ -595,6 +621,8 @@ export function App() {
       : "";
   const hasEnoughVideoBalance = (walletSummary?.balanceCents ?? 0) >= estimatedVideoCostCents;
   const videoResults = activeVideoJob?.results ?? [];
+  const imageResultSignature = results.map((result) => result.imagePath).join("|");
+  const videoResultSignature = videoResults.map((result) => result.videoPath).join("|");
   const modelOptions = useMemo(() => getImageModelOptions(providerId, modelId), [providerId, modelId]);
   const isExporting = exportFeedback === "running";
   const showActivityProgress = isRefreshing || exportFeedback !== "idle";
@@ -637,11 +665,11 @@ export function App() {
       {
         label: uiText.workflowExport,
         description: "下载图片或专业素材",
-        done: exportFeedback === "done",
-        active: workflowResultCount > 0 && exportFeedback !== "done"
+        done: imageExportCompleted,
+        active: workflowResultCount > 0 && !imageExportCompleted
       }
     ],
-    [configuredProvider, exportFeedback, hasCurrentWork, selectedPresets.length, workflowResultCount]
+    [configuredProvider, hasCurrentWork, imageExportCompleted, selectedPresets.length, workflowResultCount]
   );
   const videoWorkflowSteps = useMemo(
     () => [
@@ -666,13 +694,13 @@ export function App() {
       {
         label: uiText.workflowExport,
         description: "导出视频素材",
-        done: exportFeedback === "done",
-        active: videoResults.length > 0 && exportFeedback !== "done"
+        done: videoExportCompleted,
+        active: videoResults.length > 0 && !videoExportCompleted
       }
     ],
     [
-      exportFeedback,
       hasCurrentWork,
+      videoExportCompleted,
       videoProviderConfigured,
       videoResults.length,
       videoSetupWarning,
@@ -708,6 +736,14 @@ export function App() {
       disposeSettings();
     };
   }, []);
+
+  useEffect(() => {
+    setImageExportCompleted(false);
+  }, [imageResultSignature]);
+
+  useEffect(() => {
+    setVideoExportCompleted(false);
+  }, [videoResultSignature]);
 
   useEffect(() => {
     if (getVideoModelMeta(videoProviderId, videoModelId)) return;
@@ -748,16 +784,19 @@ export function App() {
   }
 
   async function refreshStatus() {
-    const [statuses, jobs, trashedJobs, wallet, transactions] = await Promise.all([
+    const [statuses, jobs, trashedJobs, gallery, wallet, transactions] = await Promise.all([
       window.productStudio.getKeyStatus(),
       window.productStudio.listHistory(),
       window.productStudio.listTrashedHistory(),
+      window.productStudio.listGalleryItems(),
       window.productStudio.getWallet(),
       window.productStudio.listWalletTransactions(100)
     ]);
     setKeyStatus(statuses);
     setHistory(jobs);
     setTrashedHistory(trashedJobs);
+    setGalleryItems(gallery);
+    setSelectedGalleryIds((current) => current.filter((itemId) => gallery.some((item) => item.id === itemId)));
     setWalletSummary(wallet);
     setWalletTransactions(transactions);
   }
@@ -818,9 +857,95 @@ export function App() {
     setActiveVideoJob(null);
     setHistory([]);
     setTrashedHistory([]);
+    setGalleryItems([]);
+    setSelectedGalleryIds([]);
     setWalletTransactions([]);
     setProgress({});
     setVideoProgress(null);
+  }
+
+  async function addResultToGallery(result: ProductShotResult, jobId?: string) {
+    const existing = galleryItems.find((item) => item.imagePath === result.imagePath);
+    if (existing) {
+      showStatus("这张图片已经在个人图库中。");
+      return;
+    }
+    try {
+      const item = await window.productStudio.addGalleryItem({
+        imagePath: result.imagePath,
+        title: getPresetName(result.presetId),
+        providerId: result.providerId,
+        modelId: result.modelId,
+        jobId,
+        presetId: result.presetId
+      });
+      setGalleryItems((current) => [...current, item].sort((a, b) => a.sortOrder - b.sortOrder));
+      showStatus("已加入个人图库。");
+    } catch (error) {
+      showStatus(error instanceof Error ? error.message : "加入个人图库失败。", "warn");
+    }
+  }
+
+  async function addJobResultsToGallery(job: ProductShotJob) {
+    if (job.results.length === 0) {
+      showStatus("该历史任务没有可加入图库的图片。", "warn");
+      return;
+    }
+    try {
+      await Promise.all(
+        job.results.map((result) =>
+          window.productStudio.addGalleryItem({
+            imagePath: result.imagePath,
+            title: getPresetName(result.presetId),
+            providerId: result.providerId,
+            modelId: result.modelId,
+            jobId: job.id,
+            presetId: result.presetId
+          })
+        )
+      );
+      const gallery = await window.productStudio.listGalleryItems();
+      setGalleryItems(gallery);
+      showStatus(`已将 ${job.results.length} 张历史图片加入个人图库。`);
+    } catch (error) {
+      showStatus(error instanceof Error ? error.message : "加入个人图库失败。", "warn");
+    }
+  }
+
+  async function removeGalleryItem(itemId: string) {
+    try {
+      await window.productStudio.removeGalleryItem(itemId);
+      setGalleryItems((current) =>
+        current
+          .filter((item) => item.id !== itemId)
+          .map((item, index) => ({ ...item, sortOrder: index }))
+      );
+      setSelectedGalleryIds((current) => current.filter((selectedId) => selectedId !== itemId));
+      showStatus("已从个人图库移除。");
+    } catch (error) {
+      showStatus(error instanceof Error ? error.message : "移除图片失败。", "warn");
+    }
+  }
+
+  async function reorderGalleryItems(nextItems: PersonalGalleryItem[]) {
+    const previousItems = galleryItems;
+    const normalizedItems = nextItems.map((item, index) => ({ ...item, sortOrder: index }));
+    setGalleryItems(normalizedItems);
+    try {
+      const savedItems = await window.productStudio.reorderGalleryItems(normalizedItems.map((item) => item.id));
+      setGalleryItems(savedItems);
+      showStatus("个人图库顺序已保存。");
+    } catch (error) {
+      setGalleryItems(previousItems);
+      showStatus(error instanceof Error ? error.message : "保存图库顺序失败。", "warn");
+    }
+  }
+
+  function openGalleryComparison(items: PersonalGalleryItem[]) {
+    if (items.length === 0) return;
+    const previewImages = items.map(createGalleryPreviewImage);
+    setPreviewImage(previewImages[0]);
+    setPreviewComparisonImages(previewImages.slice(1));
   }
 
   async function handleFiles(files: FileList | null) {
@@ -1074,6 +1199,7 @@ export function App() {
       const response = await window.productStudio.exportImages({ imagePaths, format: exportFormat, targetDir });
       if (response.exportedPaths.length > 0) {
         setExportFeedback("done");
+        setImageExportCompleted(true);
         showStatus(`${uiText.exportComplete}\uff1a${response.exportedPaths.length} ${uiText.imageCountSuffix} / ${targetDir}`);
         window.setTimeout(() => {
           setExportFeedback((current) => (current === "done" ? "idle" : current));
@@ -1100,6 +1226,7 @@ export function App() {
       const response = await window.productStudio.exportVideos({ videoPaths, targetDir });
       if (response.exportedPaths.length > 0) {
         setExportFeedback("done");
+        setVideoExportCompleted(true);
         showStatus(`${uiText.exportComplete}\uff1a${response.exportedPaths.length} ${uiText.exportVideo} / ${targetDir}`);
         window.setTimeout(() => {
           setExportFeedback((current) => (current === "done" ? "idle" : current));
@@ -1173,8 +1300,14 @@ export function App() {
 
   function selectHistoryJob(job: ProductShotJob) {
     setActiveJob(job);
-    setActivePage("image");
+    setSessionImageResults(job.results);
     syncFormFromJob(job);
+    const firstResult = job.results[0];
+    if (firstResult) {
+      setPreviewImage(createResultPreviewImage(firstResult));
+      return;
+    }
+    setActivePage("image");
   }
 
   function selectVideoHistoryJob(job: VideoGenerationJob) {
@@ -1270,16 +1403,20 @@ export function App() {
 
   if (!session) {
     return (
-      <AuthScreen
-        rememberedSession={rememberedSession}
-        onAuthenticate={authenticate}
-        onResume={() => void resumeRememberedSession()}
-      />
+      <div className="app-frame auth-app-frame">
+        <WindowTitleBar />
+        <AuthScreen
+          rememberedSession={rememberedSession}
+          onAuthenticate={authenticate}
+          onResume={() => void resumeRememberedSession()}
+        />
+      </div>
     );
   }
 
   return (
     <div className="app-frame">
+      <WindowTitleBar activePage={activePage} />
       {showActivityProgress ? (
         <div className={`refresh-progress ${isRefreshing ? "refreshing" : ""} ${exportFeedback}`} />
       ) : null}
@@ -1542,21 +1679,24 @@ export function App() {
                           <figure key={`${result.presetId}-${result.imagePath}`} className="result-tile result-enter">
                             <button
                               className="result-image-button"
-                              onClick={() =>
-                                setPreviewImage({
-                                  src: window.productStudio.toFileUrl(result.imagePath),
-                                  filePath: result.imagePath,
-                                  title: getPresetName(result.presetId),
-                                  subtitle: `${uiText.usedModel}: ${getModelDisplayName(result.providerId, result.modelId)}`,
-                                  fileName: `${result.presetId}-${result.modelId}.png`
-                                })
-                              }
+                              onClick={() => setPreviewImage(createResultPreviewImage(result))}
                             >
                               <img src={window.productStudio.toFileUrl(result.imagePath)} alt={result.presetId} />
                             </button>
                             <figcaption>
                               <span>{getPresetName(result.presetId)}</span>
                               <small>{result.dimensions.width ? `${result.dimensions.width} x ${result.dimensions.height}` : result.modelId}</small>
+                              <button
+                                className={`icon-button ${galleryItems.some((item) => item.imagePath === result.imagePath) ? "active" : ""}`}
+                                onClick={() => void addResultToGallery(result, activeJob?.id)}
+                                title={galleryItems.some((item) => item.imagePath === result.imagePath) ? "已在个人图库" : "加入个人图库"}
+                              >
+                                {galleryItems.some((item) => item.imagePath === result.imagePath) ? (
+                                  <Check size={14} />
+                                ) : (
+                                  <FolderPlus size={14} />
+                                )}
+                              </button>
                               <button
                                 className="icon-button"
                                 onClick={() => void exportImagePaths([result.imagePath])}
@@ -1614,6 +1754,19 @@ export function App() {
             onCancel={() => void cancelVideoGeneration()}
             onExport={(videoPath) => void exportVideoPaths([videoPath])}
           />
+        ) : activePage === "gallery" ? (
+          <PersonalGalleryPage
+            items={galleryItems}
+            selectedIds={selectedGalleryIds}
+            onSelectedIdsChange={setSelectedGalleryIds}
+            onPreview={(item) => {
+              setPreviewComparisonImages([]);
+              setPreviewImage(createGalleryPreviewImage(item));
+            }}
+            onCompare={openGalleryComparison}
+            onReorder={(items) => void reorderGalleryItems(items)}
+            onRemove={(itemId) => void removeGalleryItem(itemId)}
+          />
         ) : activePage === "personal" ? (
           <PersonalCenterPage
             session={session}
@@ -1631,6 +1784,8 @@ export function App() {
             onDeleteForever={(jobId) => void deleteHistoryJobForever(jobId)}
             onSelectImage={selectHistoryJob}
             onSelectVideo={selectVideoHistoryJob}
+            galleryImagePaths={new Set(galleryItems.map((item) => item.imagePath))}
+            onAddToGallery={(job) => void addJobResultsToGallery(job)}
             onRecharged={(wallet) => {
               setWalletSummary(wallet);
               void refreshStatus();
@@ -1676,6 +1831,8 @@ export function App() {
           estimatedCostCents={pendingGenerateMode === "single" ? estimatedCostCents : batchCostCents}
           walletBalanceCents={walletSummary?.balanceCents ?? 0}
           totalOutputCount={pendingGenerateMode === "single" ? singleOutputTotal : batchOutputTotal}
+          defaultExportDir={defaultExportDir}
+          onChooseExportFolder={() => void chooseDefaultExportFolder()}
           onCancel={() => setPendingGenerateMode(null)}
           onConfirm={runPendingGeneration}
         />
@@ -1683,14 +1840,46 @@ export function App() {
       {previewImage ? (
         <ImagePreviewDialog
           image={previewImage}
+          comparisonImages={previewComparisonImages}
+          libraryImages={comparisonLibraryImages}
           exportFormat={exportFormat}
           defaultExportDir={defaultExportDir}
           resolveDefaultExportDir={resolveDefaultExportDir}
-          onClose={() => setPreviewImage(null)}
+          onClose={() => {
+            setPreviewImage(null);
+            setPreviewComparisonImages([]);
+          }}
           onSaved={(path) => showStatus(`${uiText.saved} ${path}`)}
         />
       ) : null}
     </div>
+  );
+}
+
+function WindowTitleBar(props: { activePage?: AppPage }) {
+  const pageLabels: Partial<Record<AppPage, string>> = {
+    image: uiText.imagePage,
+    video: uiText.videoPage,
+    gallery: uiText.galleryPage,
+    personal: uiText.personalCenter,
+    updates: uiText.updatesPage,
+    settings: uiText.settingsPage
+  };
+  const pageLabel = props.activePage ? pageLabels[props.activePage] : "";
+
+  return (
+    <header className="window-titlebar">
+      <span className="window-titlebar-mark">
+        <Sparkles size={13} strokeWidth={2.2} />
+      </span>
+      <strong>Product Shot Studio</strong>
+      {pageLabel ? (
+        <>
+          <i />
+          <span className="window-titlebar-page">{pageLabel}</span>
+        </>
+      ) : null}
+    </header>
   );
 }
 
@@ -1705,6 +1894,7 @@ function PageNavigation(props: {
   const items: Array<{ id: AppPage; label: string; icon: JSX.Element }> = [
     { id: "image", label: uiText.imagePage, icon: <ImagePlus size={17} /> },
     { id: "video", label: uiText.videoPage, icon: <Video size={17} /> },
+    { id: "gallery", label: uiText.galleryPage, icon: <Images size={17} /> },
     { id: "personal", label: uiText.personalCenter, icon: <User size={17} /> },
     { id: "updates", label: uiText.updatesPage, icon: <Megaphone size={17} /> },
     { id: "settings", label: uiText.settingsPage, icon: <Settings size={17} /> }
@@ -2287,7 +2477,7 @@ function AuthScreen(props: {
 
   function selectAccount(account: LocalAccountSummary) {
     setMode("login");
-    setUsername(account.username);
+    setUsername(account.accountId);
     setPassword("");
     setMessage("");
   }
@@ -2313,6 +2503,7 @@ function AuthScreen(props: {
             <div>
               <span>{uiText.rememberedAccount}</span>
               <strong>{rememberedSession.username}</strong>
+              <small>{uiText.accountId}：{rememberedSession.accountId}</small>
             </div>
             <button className="primary-button" onClick={props.onResume}>
               <User size={18} />
@@ -2334,6 +2525,7 @@ function AuthScreen(props: {
                   <User size={16} />
                   <span>
                     <strong>{account.username}</strong>
+                    <small>{uiText.accountId}：{account.accountId}</small>
                     <small>{uiText.accountCreatedAt} {new Date(account.createdAt).toLocaleDateString()}</small>
                   </span>
                 </button>
@@ -2353,7 +2545,7 @@ function AuthScreen(props: {
           </button>
         </div>
         <label>
-          <span>{uiText.username}</span>
+          <span>{mode === "login" ? uiText.loginAccount : uiText.displayName}</span>
           <input value={username} onChange={(event) => setUsername(event.target.value)} />
         </label>
         <label>
@@ -2364,7 +2556,10 @@ function AuthScreen(props: {
           {busy ? <Loader2 className="spin" size={18} /> : <User size={18} />}
           {mode === "login" ? uiText.login : uiText.signUp}
         </button>
-        <p className="auth-footnote">{uiText.localAccountOnly}</p>
+        <p className="auth-footnote">
+          {uiText.localAccountOnly}
+          {mode === "signup" ? ` ${uiText.duplicateNameHint}` : ""}
+        </p>
         {message ? <div className="auth-message">{message}</div> : null}
       </div>
       <div className="auth-side">
@@ -2394,6 +2589,7 @@ function WalletBadge(props: {
           {props.session.username}
           <em>VIP</em>
         </span>
+        <small>{props.session.accountId}</small>
         <small>{uiText.walletBalance}</small>
         <strong>{formatUsdCents(props.wallet?.balanceCents ?? 0)}</strong>
         <small>{uiText.walletUsed} {formatUsdCents(props.wallet?.usedCents ?? 0)}</small>
@@ -2440,6 +2636,8 @@ function GenerateConfirmationDialog(props: {
   estimatedCostCents: number;
   walletBalanceCents: number;
   totalOutputCount: number;
+  defaultExportDir: string;
+  onChooseExportFolder: () => void;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -2507,11 +2705,28 @@ function GenerateConfirmationDialog(props: {
           <p title={promptSummary}>{promptSummary}</p>
         </section>
 
-        <div className="generate-confirm-source-hint">
-          <span title={sourceImages.map((image) => image.sourceImagePath).join("\n")}>
-            {sourceImages[0]?.sourceImagePath ?? "未选择源图"}
-            {sourceImages.length > 1 ? ` 等 ${sourceImages.length} 张` : ""}
-          </span>
+        <div className="generate-confirm-paths">
+          <div className="generate-confirm-path-row">
+            <div>
+              <span>源图位置</span>
+              <strong title={sourceImages.map((image) => image.sourceImagePath).join("\n")}>
+                {sourceImages[0]?.sourceImagePath ?? "未选择源图"}
+                {sourceImages.length > 1 ? ` 等 ${sourceImages.length} 张` : ""}
+              </strong>
+            </div>
+          </div>
+          <div className="generate-confirm-path-row">
+            <div>
+              <span>导出位置</span>
+              <strong title={props.defaultExportDir}>
+                {props.defaultExportDir || "使用系统默认导出文件夹"}
+              </strong>
+            </div>
+            <button className="secondary-button compact-button" onClick={props.onChooseExportFolder}>
+              <FolderOpen size={15} />
+              更改
+            </button>
+          </div>
         </div>
 
         <footer>
@@ -2538,51 +2753,65 @@ function ConfirmField(props: { label: string; value: string }) {
 }
 
 function TutorialDialog(props: { onClose: () => void }) {
+  const [expandedStep, setExpandedStep] = useState<number | null>(null);
   const steps = [
     {
-      imageUrl: tutorialImportUrl,
-      title: "\u5bfc\u5165\u4ea7\u54c1\u56fe",
-      body: "\u70b9\u51fb\u201c\u6dfb\u52a0\u56fe\u7247\u201d\u6216\u76f4\u63a5\u628a\u4ea7\u54c1\u7167\u62d6\u5230\u4e2d\u95f4\u5de5\u4f5c\u533a\u3002\u53ef\u4ee5\u4e00\u6b21\u6dfb\u52a0\u591a\u5f20\uff0c\u7136\u540e\u5728\u7f29\u7565\u56fe\u961f\u5217\u91cc\u5207\u6362\u4e3b\u56fe\u3002"
+      imageUrl: tutorialCurrentWorkspaceUrl,
+      title: "导入产品图",
+      body: "进入“图片生成”，点击中间的上传区域或“添加图片”，也可以把 JPG、PNG、WebP 产品图直接拖进工作区。支持一次导入多张图片，并在下方缩略图中切换、删除或清空。"
     },
     {
-      imageUrl: tutorialApiConfigUrl,
-      title: "\u914d\u7f6e API \u5bc6\u94a5\u4e0e\u6a21\u578b",
-      body: "\u8fdb\u5165\u201cAPI \u5bc6\u94a5\u201d\u586b\u5199\u5df2\u5f00\u901a\u7684\u56fd\u5185\u6a21\u578b\u5e73\u53f0\u5bc6\u94a5\uff0c\u7136\u540e\u5728\u4e3b\u5de5\u4f5c\u53f0\u7684\u6a21\u578b\u5217\u8868\u4e2d\u9009\u62e9\u8981\u4f7f\u7528\u7684\u6a21\u578b\u3002"
+      imageUrl: tutorialCurrentModelConfigUrl,
+      title: "配置密钥、模型与输出",
+      body: "先在“设置”中填写已开通平台的 API 密钥和模型/接入点 ID。回到工作台选择模型，再设置比例、张数、图片格式、质量和提示词模板。模型卡片上的钥匙图标表示仍需配置密钥。"
     },
     {
-      imageUrl: tutorialResultsUrl,
-      title: "\u751f\u6210\u5546\u62cd\u5957\u88c5",
-      body: "\u9009\u62e9\u6bd4\u4f8b\u548c\u5f20\u6570\uff0c\u518d\u9009\u62e9\u63d0\u793a\u8bcd\u6a21\u677f\u6216\u8f93\u5165\u81ea\u5b9a\u4e49\u63d0\u793a\u8bcd\u3002\u70b9\u51fb\u201c\u751f\u6210\u201d\u540e\uff0c\u7cfb\u7edf\u4f1a\u6309\u5f53\u524d\u6a21\u677f\u548c\u5f20\u6570\u751f\u6210\u7ed3\u679c\u3002"
+      imageUrl: tutorialCurrentPreviewUrl,
+      title: "预览、编辑、对比与导出",
+      body: "点击生成结果或历史作品即可打开大图预览。图片会先完整适配窗口；滚轮可围绕鼠标位置缩放，按住图片拖动查看细节，双击恢复完整视图。你还可以编辑、保存、加入对比图，并导出当前图片。"
     },
     {
-      imageUrl: tutorialTroubleshootingUrl,
-      title: "\u9884\u89c8\u3001\u7f16\u8f91\u3001\u5bfc\u51fa\u548c\u6062\u590d",
-      body: "\u70b9\u51fb\u4efb\u610f\u7ed3\u679c\u56fe\u53ef\u653e\u5927\u9884\u89c8\uff0c\u53ef\u8c03\u6574\u4eae\u5ea6\u3001\u5bf9\u6bd4\u5ea6\u548c\u9971\u548c\u5ea6\u540e\u4fdd\u5b58\u3002\u5220\u9664\u7684\u5386\u53f2\u8bb0\u5f55\u4f1a\u8fdb\u5165\u56de\u6536\u7ad9\uff0c\u53ef\u5728\u4e2a\u4eba\u4e2d\u5fc3\u6062\u590d\u3002"
+      imageUrl: tutorialCurrentHistoryUrl,
+      title: "管理历史作品与个人图库",
+      body: "在“个人中心 > 历史作品”查看每次生成任务、模型和结果；删除记录后可在回收站恢复。喜欢的图片可加入个人图库，拖拽调整电商发布顺序，也能勾选多张图片进行并排对比。不同账号的数据彼此隔离。"
+    },
+    {
+      imageUrl: tutorialCurrentUpdatesUrl,
+      title: "设置导出位置并查看更新",
+      body: "在“设置”中修改默认导出文件夹，之后生成确认页和导出操作会同步使用该路径。“更新公告”会记录每个版本的中文更新内容、发布时间、功能变化和修复情况。"
     }
   ];
   const faqs = [
     {
-      question: "\u751f\u6210\u5931\u8d25\u600e\u4e48\u529e\uff1f",
-      answer: "\u5148\u67e5\u770b\u7ed3\u679c\u533a\u7684\u5931\u8d25\u539f\u56e0\u3002\u5e38\u89c1\u539f\u56e0\u5305\u62ec API \u5bc6\u94a5\u65e0\u6548\u3001\u6a21\u578b\u672a\u5f00\u901a\u3001\u63a5\u5165\u70b9 ID \u4e0d\u5339\u914d\u3001\u5e73\u53f0\u4f59\u989d\u4e0d\u8db3\u6216\u56fe\u7247\u5c3a\u5bf8\u4e0d\u7b26\u5408\u4f9b\u5e94\u5546\u8981\u6c42\u3002"
+      question: "生成失败怎么处理？",
+      answer: "先看结果区的中文失败原因。常见情况包括 API 密钥无效、模型或接入点未开通、平台额度或软件积分不足、模型达到推理限额，以及输入尺寸不符合供应商要求。"
     },
     {
-      question: "\u4ea7\u54c1\u5916\u89c2\u4e0d\u591f\u50cf\u539f\u56fe\u600e\u4e48\u529e\uff1f",
-      answer: "\u5728\u4ea7\u54c1\u4fe1\u606f\u91cc\u5199\u660e\u54c1\u7c7b\u3001\u6750\u8d28\u3001\u989c\u8272\u3001Logo \u548c\u9700\u8981\u4fdd\u7559\u7684\u7ec6\u8282\uff0c\u98ce\u683c\u8981\u6c42\u91cc\u53ea\u63cf\u8ff0\u80cc\u666f\u3001\u706f\u5149\u548c\u9648\u5217\u73af\u5883\u3002"
+      question: "产品外观与原图不一致怎么办？",
+      answer: "在提示词中明确要求保持产品形状、颜色、材质、比例、Logo 和包装文字，只改变背景、灯光、构图和陈列环境。尽量使用主体清晰、无遮挡、光线均匀的原图。"
     },
     {
-      question: "\u4e3a\u4ec0\u4e48\u5de6\u4e0a\u89d2\u4f59\u989d\u548c\u5e73\u53f0\u8d26\u5355\u4e0d\u4e00\u6837\uff1f",
-      answer: "\u8f6f\u4ef6\u5185\u7684\u4f59\u989d\u662f\u672c\u5730\u8bb0\u8d26\u548c\u6210\u672c\u4f30\u7b97\uff0c\u7528\u6765\u5e2e\u4f60\u63a7\u5236\u751f\u6210\u9884\u7b97\u3002\u771f\u5b9e\u8d39\u7528\u4ee5\u5404\u6a21\u578b\u5e73\u53f0\u7684\u8d26\u5355\u4e3a\u51c6\u3002"
+      question: "图片为什么加载不出来？",
+      answer: "先点击刷新，再确认原文件没有被移动或删除。历史图片来自软件数据目录；如果更换电脑、清理数据目录或只复制数据库而没有复制图片文件，缩略图和大图可能无法显示。"
     },
     {
-      question: "\u5386\u53f2\u8bb0\u5f55\u4e3a\u4ec0\u4e48\u770b\u4e0d\u5230\uff1f",
-      answer: "\u6bcf\u4e2a\u672c\u5730\u8d26\u53f7\u7684\u5386\u53f2\u8bb0\u5f55\u662f\u5206\u5f00\u4fdd\u5b58\u7684\u3002\u8bf7\u786e\u8ba4\u5df2\u767b\u5f55\u751f\u6210\u8be5\u56fe\u7247\u65f6\u4f7f\u7528\u7684\u672c\u5730\u8d26\u53f7\u3002"
+      question: "历史记录或个人图库为什么是空的？",
+      answer: "历史记录和个人图库按账号 ID 分开保存。请确认当前登录的是生成这些作品时使用的账号；账号名可能相同，但唯一账号 ID 不同，数据也不会共享。"
+    },
+    {
+      question: "后端服务未连接怎么办？",
+      answer: "开发模式下请先在项目目录运行本地账本服务，或直接运行 npm.cmd run dev:all。软件关闭不应影响独立启动的后端；如果后台也关闭了，请重新启动 server 服务。"
+    },
+    {
+      question: "如何直接使用已经生成的图片进行对比？",
+      answer: "在大图预览中点击“添加对比图”，从“本次结果、历史生成、个人图库”里勾选图片即可；也可以在个人图库中直接多选两张以上图片进入对比视图。"
     }
   ];
   const tips = [
-    "\u4e3a\u4e86\u4fdd\u6301\u4ea7\u54c1\u4e0d\u53d8\u5f62\uff0c\u4ea7\u54c1\u4fe1\u606f\u91cc\u5c3d\u91cf\u5199\u6e05\u695a\u989c\u8272\u3001\u6750\u8d28\u3001Logo\u3001\u6587\u5b57\u548c\u6bd4\u4f8b\u3002",
-    "\u98ce\u683c\u8981\u6c42\u91cc\u53ea\u5199\u80cc\u666f\u3001\u706f\u5149\u3001\u6784\u56fe\u548c\u9648\u5217\u65b9\u5f0f\uff0c\u4e0d\u8981\u8981\u6c42\u6a21\u578b\u91cd\u65b0\u8bbe\u8ba1\u4ea7\u54c1\u3002",
-    "\u5982\u679c\u60f3\u505a\u7535\u5546\u4e3b\u56fe\uff0c\u4f18\u5148\u7528 1:1 \u6216 4:5\uff1b\u5e97\u94fa\u6a2a\u5e45\u548c\u6d3b\u52a8\u56fe\u4f18\u5148\u7528 16:9\u3002",
-    "\u751f\u6210\u540e\u5148\u653e\u5927\u68c0\u67e5 Logo\u3001\u82b1\u7eb9\u3001\u6587\u5b57\u548c\u8fb9\u7f18\uff0c\u518d\u6279\u91cf\u5bfc\u51fa\u3002"
+    "拍摄原图时让主体完整入镜，减少强反光、遮挡和复杂背景，能明显提高产品保真度。",
+    "电商主图优先选择 1:1 或 4:5；店铺横幅、活动页和广告素材优先选择 16:9。",
+    "生成前先核对模型、单张积分和预计总积分；批量任务建议先用一张标准质量试生成。",
+    "导出前放大检查 Logo、包装文字、边缘、手指和产品结构，再把通过的图片加入个人图库排序。"
   ];
 
   return (
@@ -2601,7 +2830,15 @@ function TutorialDialog(props: { onClose: () => void }) {
           <section className="tutorial-steps" aria-label={uiText.tutorialFlow}>
             {steps.map((step, index) => (
               <article key={step.title} className="tutorial-card">
-                <img src={step.imageUrl} alt="" />
+                <button
+                  type="button"
+                  className="tutorial-card-image"
+                  onClick={() => setExpandedStep(index)}
+                  aria-label={`放大查看：${step.title}`}
+                >
+                  <img src={step.imageUrl} alt={`${step.title}界面示例`} />
+                  <span><ZoomIn size={14} /> 点击查看大图</span>
+                </button>
                 <div>
                   <small>{uiText.tutorialFlow} {index + 1}</small>
                   <strong>{step.title}</strong>
@@ -2630,6 +2867,23 @@ function TutorialDialog(props: { onClose: () => void }) {
             </div>
           </section>
         </div>
+        {expandedStep !== null ? (
+          <div className="tutorial-image-backdrop" role="dialog" aria-modal="true" onClick={() => setExpandedStep(null)}>
+            <div className="tutorial-image-dialog" onClick={(event) => event.stopPropagation()}>
+              <header>
+                <div>
+                  <small>{uiText.tutorialFlow} {expandedStep + 1}</small>
+                  <strong>{steps[expandedStep].title}</strong>
+                </div>
+                <button className="icon-button" onClick={() => setExpandedStep(null)} title={uiText.close}>
+                  <X size={17} />
+                </button>
+              </header>
+              <img src={steps[expandedStep].imageUrl} alt={`${steps[expandedStep].title}界面大图`} />
+              <p>{steps[expandedStep].body}</p>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -2637,6 +2891,8 @@ function TutorialDialog(props: { onClose: () => void }) {
 
 function ImagePreviewDialog(props: {
   image: PreviewImage;
+  comparisonImages?: PreviewImage[];
+  libraryImages: ComparisonLibraryImage[];
   exportFormat: ExportFormat;
   defaultExportDir: string;
   resolveDefaultExportDir: () => Promise<string>;
@@ -2647,6 +2903,24 @@ function ImagePreviewDialog(props: {
     () => createPreviewCompareItem(normalizePreviewImageName(props.image, props.image.title), `source:${props.image.filePath || props.image.src}`),
     [props.image.filePath, props.image.src, props.image.subtitle, props.image.title, props.image.fileName]
   );
+  const initialPreviewItems = useMemo(() => {
+    const seen = new Set<string>();
+    return [props.image, ...(props.comparisonImages ?? [])]
+      .filter((image) => {
+        const key = image.filePath || image.src;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((image, index) =>
+        createPreviewCompareItem(
+          normalizePreviewImageName(image, image.title),
+          index === 0
+            ? sourcePreviewItem.id
+            : `compare:${image.filePath || image.src}:${index}`
+        )
+      );
+  }, [props.image, props.comparisonImages, sourcePreviewItem.id]);
   const dragRef = useRef<{
     imageKey: string;
     pointerId: number;
@@ -2656,11 +2930,14 @@ function ImagePreviewDialog(props: {
     panY: number;
   } | null>(null);
   const compareGridRef = useRef<HTMLElement | null>(null);
-  const [previewItems, setPreviewItems] = useState<PreviewCompareItem[]>(() => [sourcePreviewItem]);
+  const [previewItems, setPreviewItems] = useState<PreviewCompareItem[]>(() => initialPreviewItems);
   const [activePreviewId, setActivePreviewId] = useState(sourcePreviewItem.id);
   const [compareLayout, setCompareLayout] = useState<PreviewCompareLayout>("adaptive");
   const [customGridSize, setCustomGridSize] = useState(5);
   const [compareModeEnabled, setCompareModeEnabled] = useState(false);
+  const [comparisonLibraryOpen, setComparisonLibraryOpen] = useState(false);
+  const [comparisonLibraryTab, setComparisonLibraryTab] = useState<ComparisonLibrarySource>("current");
+  const [selectedLibraryIds, setSelectedLibraryIds] = useState<string[]>([]);
   const [draggedPreviewId, setDraggedPreviewId] = useState<string | null>(null);
   const [dragOverPreviewId, setDragOverPreviewId] = useState<string | null>(null);
   const [viewStates, setViewStates] = useState<Record<string, PreviewViewState>>({});
@@ -2675,6 +2952,18 @@ function ImagePreviewDialog(props: {
   const activePreviewKey = activePreviewImage.id;
   const activeViewState = viewStates[activePreviewKey] ?? defaultPreviewViewState;
   const showCompareGrid = previewItems.length > 1 || compareModeEnabled;
+  const previewImageKeys = useMemo(
+    () => new Set(previewItems.map((item) => item.filePath || item.src)),
+    [previewItems]
+  );
+  const visibleLibraryImages = useMemo(
+    () => props.libraryImages.filter((image) => image.source === comparisonLibraryTab),
+    [props.libraryImages, comparisonLibraryTab]
+  );
+  const selectedLibraryImages = useMemo(
+    () => props.libraryImages.filter((image) => selectedLibraryIds.includes(image.libraryId)),
+    [props.libraryImages, selectedLibraryIds]
+  );
   const imageFilter = `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%)`;
 
   useEffect(() => {
@@ -2682,12 +2971,14 @@ function ImagePreviewDialog(props: {
     setEditing(false);
     resetEdit();
     setMessage("");
-    setPreviewItems([sourcePreviewItem]);
+    setPreviewItems(initialPreviewItems);
     setActivePreviewId(sourcePreviewItem.id);
     setCompareLayout("adaptive");
     setCustomGridSize(5);
-    setCompareModeEnabled(false);
-  }, [sourcePreviewItem.id]);
+    setCompareModeEnabled(initialPreviewItems.length > 1);
+    setComparisonLibraryOpen(false);
+    setSelectedLibraryIds([]);
+  }, [initialPreviewItems, sourcePreviewItem.id]);
 
   useEffect(() => {
     const gridElement = compareGridRef.current;
@@ -2833,8 +3124,8 @@ function ImagePreviewDialog(props: {
     setActivePreviewId(imageKey);
     const rect = event.currentTarget.getBoundingClientRect();
 
-    const cursorX = event.clientX - rect.left;
-    const cursorY = event.clientY - rect.top;
+    const cursorX = event.clientX - rect.left - rect.width / 2;
+    const cursorY = event.clientY - rect.top - rect.height / 2;
     const factor = event.deltaY > 0 ? 0.88 : 1.12;
 
     updateViewState(imageKey, (current) => {
@@ -2919,7 +3210,7 @@ function ImagePreviewDialog(props: {
     const viewState = getViewState(image.id);
     return {
       filter: active ? imageFilter : undefined,
-      transform: `matrix(${viewState.zoom}, 0, 0, ${viewState.zoom}, ${viewState.pan.x}, ${viewState.pan.y})`
+      transform: `translate3d(${viewState.pan.x}px, ${viewState.pan.y}px, 0) scale(${viewState.zoom})`
     };
   }
 
@@ -2983,7 +3274,52 @@ function ImagePreviewDialog(props: {
     }
   }
 
-  async function addComparisonImages() {
+  function openComparisonLibrary() {
+    const preferredSource: ComparisonLibrarySource = props.libraryImages.some((image) => image.source === "current")
+      ? "current"
+      : props.libraryImages.some((image) => image.source === "history")
+        ? "history"
+        : "gallery";
+    setComparisonLibraryTab(preferredSource);
+    setSelectedLibraryIds([]);
+    setComparisonLibraryOpen(true);
+    setMessage("");
+  }
+
+  function toggleLibraryImage(image: ComparisonLibraryImage) {
+    const imageKey = image.filePath || image.src;
+    if (previewImageKeys.has(imageKey)) return;
+    setSelectedLibraryIds((current) =>
+      current.includes(image.libraryId)
+        ? current.filter((libraryId) => libraryId !== image.libraryId)
+        : [...current, image.libraryId]
+    );
+  }
+
+  function addSelectedLibraryImages() {
+    const createdAt = Date.now();
+    const existingKeys = new Set(previewItems.map((item) => item.filePath || item.src));
+    const nextImages = selectedLibraryImages
+      .filter((image) => !existingKeys.has(image.filePath || image.src))
+      .map((image, index) =>
+        createPreviewCompareItem(
+          normalizePreviewImageName(image, image.title),
+          `library:${image.libraryId}:${createdAt}:${index}`
+        )
+      );
+    if (nextImages.length === 0) {
+      setMessage("请选择尚未加入对比的图片");
+      return;
+    }
+    setPreviewItems((current) => [...current, ...nextImages]);
+    setActivePreviewId(nextImages[0].id);
+    setCompareModeEnabled(true);
+    setComparisonLibraryOpen(false);
+    setSelectedLibraryIds([]);
+    setMessage(`已从软件图库添加 ${nextImages.length} 张对比图`);
+  }
+
+  async function addComparisonImagesFromFiles() {
     setBusy(true);
     setMessage("");
     try {
@@ -3012,6 +3348,7 @@ function ImagePreviewDialog(props: {
       }
       setCompareModeEnabled(true);
       setMessage(`已添加 ${imported.length} 张对比图`);
+      setComparisonLibraryOpen(false);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : uiText.importFailed);
     } finally {
@@ -3082,7 +3419,7 @@ function ImagePreviewDialog(props: {
               <Edit3 size={16} />
               {uiText.editImage}
             </button>
-            <button className="secondary-button" onClick={() => void addComparisonImages()} disabled={busy}>
+            <button className="secondary-button" onClick={openComparisonLibrary} disabled={busy}>
               <ImagePlus size={16} />
               添加对比图
             </button>
@@ -3179,6 +3516,7 @@ function ImagePreviewDialog(props: {
                   </span>
                   <span className="preview-compare-meta">
                     <strong>{image.title}</strong>
+                    {image.subtitle ? <small>{image.subtitle}</small> : null}
                   </span>
                 </article>
               );
@@ -3202,12 +3540,106 @@ function ImagePreviewDialog(props: {
               onDragStart={(event) => event.preventDefault()}
               style={{
                 filter: imageFilter,
-                transform: `matrix(${activeViewState.zoom}, 0, 0, ${activeViewState.zoom}, ${activeViewState.pan.x}, ${activeViewState.pan.y})`
+                transform: `translate3d(${activeViewState.pan.x}px, ${activeViewState.pan.y}px, 0) scale(${activeViewState.zoom})`
               }}
             />
           </div>
         )}
         <footer>{message || uiText.previewInteractionHint}</footer>
+        {comparisonLibraryOpen ? (
+          <div className="compare-library-backdrop" role="presentation">
+            <section className="compare-library-dialog" role="dialog" aria-modal="true" aria-label="选择对比图片">
+              <header>
+                <div>
+                  <span className="compare-library-kicker">图片来源</span>
+                  <h3>选择已经生成的图片</h3>
+                  <p>直接使用本次结果、历史作品或个人图库，不需要再次从文件夹寻找。</p>
+                </div>
+                <button
+                  className="icon-button"
+                  onClick={() => {
+                    setComparisonLibraryOpen(false);
+                    setSelectedLibraryIds([]);
+                  }}
+                  title={uiText.close}
+                >
+                  <X size={16} />
+                </button>
+              </header>
+
+              <nav className="compare-library-tabs" aria-label="对比图片来源">
+                {([
+                  { id: "current", label: "本次结果", icon: <Sparkles size={15} /> },
+                  { id: "history", label: "历史生成", icon: <History size={15} /> },
+                  { id: "gallery", label: "个人图库", icon: <Images size={15} /> }
+                ] as Array<{ id: ComparisonLibrarySource; label: string; icon: JSX.Element }>).map((tab) => {
+                  const count = props.libraryImages.filter((image) => image.source === tab.id).length;
+                  return (
+                    <button
+                      key={tab.id}
+                      className={comparisonLibraryTab === tab.id ? "active" : ""}
+                      onClick={() => setComparisonLibraryTab(tab.id)}
+                    >
+                      {tab.icon}
+                      <span>{tab.label}</span>
+                      <small>{count}</small>
+                    </button>
+                  );
+                })}
+              </nav>
+
+              <div className="compare-library-grid">
+                {visibleLibraryImages.length === 0 ? (
+                  <div className="compare-library-empty">
+                    <Images size={30} />
+                    <strong>这里暂时没有图片</strong>
+                    <span>生成图片或收藏到个人图库后，就能直接用于对比。</span>
+                  </div>
+                ) : (
+                  visibleLibraryImages.map((image) => {
+                    const imageKey = image.filePath || image.src;
+                    const alreadyAdded = previewImageKeys.has(imageKey);
+                    const selected = selectedLibraryIds.includes(image.libraryId);
+                    return (
+                      <button
+                        key={image.libraryId}
+                        className={`compare-library-card ${selected ? "selected" : ""} ${alreadyAdded ? "added" : ""}`}
+                        onClick={() => toggleLibraryImage(image)}
+                        disabled={alreadyAdded}
+                        title={alreadyAdded ? "已在当前对比中" : image.title}
+                      >
+                        <span className="compare-library-image">
+                          <img src={image.src} alt={image.title} />
+                          <i>{alreadyAdded ? <Check size={15} /> : selected ? <Check size={15} /> : null}</i>
+                        </span>
+                        <span className="compare-library-meta">
+                          <strong>{image.title}</strong>
+                          <small>{image.subtitle || new Date(image.createdAt).toLocaleString()}</small>
+                        </span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+
+              <footer>
+                <button className="secondary-button" onClick={() => void addComparisonImagesFromFiles()} disabled={busy}>
+                  <FolderOpen size={16} />
+                  从电脑选择
+                </button>
+                <span>已选择 {selectedLibraryImages.length} 张</span>
+                <button
+                  className="primary-button"
+                  onClick={addSelectedLibraryImages}
+                  disabled={selectedLibraryImages.length === 0}
+                >
+                  <ImagePlus size={16} />
+                  添加到对比
+                </button>
+              </footer>
+            </section>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -3281,8 +3713,249 @@ function normalizePreviewImageName(image: PreviewImage, fallback: string): Previ
   };
 }
 
+function createResultPreviewImage(result: ProductShotResult): PreviewImage {
+  return {
+    src: window.productStudio.toFileUrl(result.imagePath),
+    filePath: result.imagePath,
+    title: getPresetName(result.presetId),
+    subtitle: `${uiText.usedModel}: ${getModelDisplayName(result.providerId, result.modelId)}`,
+    fileName: getDisplayFileName(result.imagePath, `${result.presetId}-${result.modelId}.png`)
+  };
+}
+
+function createGalleryPreviewImage(item: PersonalGalleryItem): PreviewImage {
+  return {
+    src: window.productStudio.toFileUrl(item.imagePath),
+    filePath: item.imagePath,
+    title: item.title,
+    subtitle: item.modelId && item.providerId
+      ? `${uiText.usedModel}: ${getModelDisplayName(item.providerId, item.modelId)}`
+      : uiText.galleryPage,
+    fileName: getDisplayFileName(item.imagePath, `${item.title}.png`)
+  };
+}
+
+function buildComparisonLibraryImages(
+  currentResults: ProductShotResult[],
+  jobs: StudioJob[],
+  galleryItems: PersonalGalleryItem[]
+): ComparisonLibraryImage[] {
+  const current = currentResults.map((result, index) =>
+    createComparisonLibraryImage(
+      createResultPreviewImage(result),
+      "current",
+      `current:${result.imagePath}:${index}`,
+      result.createdAt
+    )
+  );
+  const historyImages = jobs
+    .filter(isImageJob)
+    .flatMap((job) =>
+      job.results.map((result, index) =>
+        createComparisonLibraryImage(
+          createResultPreviewImage(result),
+          "history",
+          `history:${job.id}:${result.imagePath}:${index}`,
+          result.createdAt || job.createdAt
+        )
+      )
+    )
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  const gallery = galleryItems.map((item) =>
+    createComparisonLibraryImage(
+      createGalleryPreviewImage(item),
+      "gallery",
+      `gallery:${item.id}`,
+      item.createdAt
+    )
+  );
+  return [...current, ...historyImages, ...gallery];
+}
+
+function createComparisonLibraryImage(
+  image: PreviewImage,
+  source: ComparisonLibrarySource,
+  libraryId: string,
+  createdAt: string
+): ComparisonLibraryImage {
+  return {
+    ...image,
+    libraryId,
+    source,
+    createdAt
+  };
+}
+
 function isPreviewInteractiveDragTarget(target: EventTarget | null): boolean {
   return target instanceof Element && Boolean(target.closest("button, input, textarea, select, .preview-compare-image"));
+}
+
+function PersonalGalleryPage(props: {
+  items: PersonalGalleryItem[];
+  selectedIds: string[];
+  onSelectedIdsChange: (itemIds: string[]) => void;
+  onPreview: (item: PersonalGalleryItem) => void;
+  onCompare: (items: PersonalGalleryItem[]) => void;
+  onReorder: (items: PersonalGalleryItem[]) => void;
+  onRemove: (itemId: string) => void;
+}) {
+  const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
+  const [dragOverItemId, setDragOverItemId] = useState<string | null>(null);
+  const selectedItems = props.items.filter((item) => props.selectedIds.includes(item.id));
+
+  function toggleSelected(itemId: string) {
+    props.onSelectedIdsChange(
+      props.selectedIds.includes(itemId)
+        ? props.selectedIds.filter((selectedId) => selectedId !== itemId)
+        : [...props.selectedIds, itemId]
+    );
+  }
+
+  function reorder(sourceId: string, targetId: string) {
+    if (sourceId === targetId) return;
+    const sourceIndex = props.items.findIndex((item) => item.id === sourceId);
+    const targetIndex = props.items.findIndex((item) => item.id === targetId);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+    const nextItems = [...props.items];
+    const [movedItem] = nextItems.splice(sourceIndex, 1);
+    nextItems.splice(targetIndex, 0, movedItem);
+    props.onReorder(nextItems);
+  }
+
+  function moveItem(itemId: string, direction: -1 | 1) {
+    const currentIndex = props.items.findIndex((item) => item.id === itemId);
+    const targetIndex = currentIndex + direction;
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= props.items.length) return;
+    reorder(itemId, props.items[targetIndex].id);
+  }
+
+  function startDrag(event: DragEvent<HTMLElement>, itemId: string) {
+    if (event.target instanceof Element && event.target.closest("button, input, label")) {
+      event.preventDefault();
+      return;
+    }
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", itemId);
+    setDraggedItemId(itemId);
+  }
+
+  function dropItem(event: DragEvent<HTMLElement>, targetId: string) {
+    event.preventDefault();
+    const sourceId = draggedItemId || event.dataTransfer.getData("text/plain");
+    setDraggedItemId(null);
+    setDragOverItemId(null);
+    if (sourceId) reorder(sourceId, targetId);
+  }
+
+  return (
+    <main className="page-workspace gallery-page">
+      <header className="page-header gallery-page-header">
+        <div>
+          <h2>{uiText.galleryPage}</h2>
+          <p>{props.items.length} 张收藏 / 电商发布顺序</p>
+        </div>
+        <div className="gallery-toolbar">
+          {props.selectedIds.length > 0 ? (
+            <button className="secondary-button" onClick={() => props.onSelectedIdsChange([])}>
+              <X size={15} />
+              清除选择
+            </button>
+          ) : null}
+          <button
+            className="primary-button"
+            disabled={selectedItems.length < 2}
+            onClick={() => props.onCompare(selectedItems)}
+          >
+            <LayoutGrid size={16} />
+            对比 {selectedItems.length > 0 ? selectedItems.length : ""}
+          </button>
+        </div>
+      </header>
+
+      {props.items.length === 0 ? (
+        <section className="gallery-empty">
+          <Images size={32} />
+          <h3>个人图库还是空的</h3>
+          <p>可从生成结果或个人中心的历史作品加入图片。</p>
+        </section>
+      ) : (
+        <section className="gallery-grid" aria-label={uiText.galleryPage}>
+          {props.items.map((item, index) => {
+            const selected = props.selectedIds.includes(item.id);
+            return (
+              <article
+                key={item.id}
+                className={`gallery-card ${selected ? "selected" : ""} ${draggedItemId === item.id ? "dragging" : ""} ${dragOverItemId === item.id ? "drag-over" : ""}`}
+                draggable
+                onDragStart={(event) => startDrag(event, item.id)}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  setDragOverItemId(item.id);
+                }}
+                onDrop={(event) => dropItem(event, item.id)}
+                onDragEnd={() => {
+                  setDraggedItemId(null);
+                  setDragOverItemId(null);
+                }}
+              >
+                <div className="gallery-card-topline">
+                  <span className="gallery-order">{index + 1}</span>
+                  <span className="gallery-drag-handle" title="调整顺序">
+                    <GripVertical size={16} />
+                  </span>
+                  <label className="gallery-select" title="选择用于对比">
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() => toggleSelected(item.id)}
+                      aria-label={`选择 ${item.title}`}
+                    />
+                  </label>
+                </div>
+                <button className="gallery-image-button" onClick={() => props.onPreview(item)}>
+                  <img src={window.productStudio.toFileUrl(item.imagePath)} alt={item.title} />
+                </button>
+                <div className="gallery-card-meta">
+                  <strong title={item.title}>{item.title}</strong>
+                  <span title={item.modelId}>
+                    {item.modelId && item.providerId
+                      ? getModelDisplayName(item.providerId, item.modelId)
+                      : "已收藏图片"}
+                  </span>
+                </div>
+                <div className="gallery-card-actions">
+                  <button
+                    className="icon-button"
+                    onClick={() => moveItem(item.id, -1)}
+                    disabled={index === 0}
+                    title="前移"
+                  >
+                    <ArrowLeft size={15} />
+                  </button>
+                  <button
+                    className="icon-button"
+                    onClick={() => moveItem(item.id, 1)}
+                    disabled={index === props.items.length - 1}
+                    title="后移"
+                  >
+                    <ArrowRight size={15} />
+                  </button>
+                  <button
+                    className="icon-button danger"
+                    onClick={() => props.onRemove(item.id)}
+                    title="移出个人图库"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              </article>
+            );
+          })}
+        </section>
+      )}
+    </main>
+  );
 }
 
 function PersonalCenterPage(props: {
@@ -3301,6 +3974,8 @@ function PersonalCenterPage(props: {
   onDeleteForever: (jobId: string) => void;
   onSelectImage: (job: ProductShotJob) => void;
   onSelectVideo: (job: VideoGenerationJob) => void;
+  galleryImagePaths: Set<string>;
+  onAddToGallery: (job: ProductShotJob) => void;
   onRecharged: (wallet: WalletSummary) => void;
 }) {
   const imageJobs = useMemo(() => props.jobs.filter(isImageJob), [props.jobs]);
@@ -3398,6 +4073,8 @@ function PersonalCenterPage(props: {
               emptyText={uiText.noJobs}
               onSelect={selectJob}
               onTrash={props.onTrash}
+              galleryImagePaths={props.galleryImagePaths}
+              onAddToGallery={props.onAddToGallery}
             />
           ) : props.activeTab === "recharge" ? (
             <RechargeDialog
@@ -3431,6 +4108,8 @@ function PersonalHistoryList(props: {
   emptyText: string;
   onSelect: (job: StudioJob) => void;
   onTrash: (jobId: string) => void;
+  galleryImagePaths: Set<string>;
+  onAddToGallery: (job: ProductShotJob) => void;
 }) {
   return (
     <div className="history-dialog-list personal-history-list">
@@ -3438,7 +4117,19 @@ function PersonalHistoryList(props: {
         <div className="empty-results">{props.emptyText}</div>
       ) : (
         props.jobs.map((job) => (
-          <button key={job.id} className="history-dialog-item" onClick={() => props.onSelect(job)}>
+          <article
+            key={job.id}
+            className="history-dialog-item"
+            onClick={() => props.onSelect(job)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                props.onSelect(job);
+              }
+            }}
+            role="button"
+            tabIndex={0}
+          >
             <PersonalJobThumb job={job} />
             <div>
               <strong>{new Date(job.createdAt).toLocaleString()}</strong>
@@ -3452,6 +4143,26 @@ function PersonalHistoryList(props: {
               </small>
             </div>
             <span className="history-row-actions">
+              {isImageJob(job) && job.results.length > 0 ? (
+                <button
+                  className={job.results.every((result) => props.galleryImagePaths.has(result.imagePath)) ? "active" : ""}
+                  title={
+                    job.results.every((result) => props.galleryImagePaths.has(result.imagePath))
+                      ? "已加入个人图库"
+                      : "将该任务图片加入个人图库"
+                  }
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    props.onAddToGallery(job);
+                  }}
+                >
+                  {job.results.every((result) => props.galleryImagePaths.has(result.imagePath)) ? (
+                    <Check size={16} />
+                  ) : (
+                    <FolderPlus size={16} />
+                  )}
+                </button>
+              ) : null}
               <i>
                 <Check size={16} />
               </i>
@@ -3465,7 +4176,7 @@ function PersonalHistoryList(props: {
                 <Trash2 size={16} />
               </i>
             </span>
-          </button>
+          </article>
         ))
       )}
     </div>

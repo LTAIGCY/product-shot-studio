@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron";
-import { pathToFileURL } from "node:url";
 import { ipcChannels } from "../shared/ipc";
 import type {
+  AddPersonalGalleryItemRequest,
   AuthCredentials,
   AuthSession,
   ExportRequest,
@@ -10,6 +10,7 @@ import type {
   RechargeRequest,
   GenerateProgress,
   LocalAccountSummary,
+  PersonalGalleryItem,
   ProductShotRequest,
   ProviderId,
   SaveEditedImageRequest,
@@ -55,12 +56,18 @@ contextBridge.exposeInMainWorld("productStudio", {
   restoreHistoryJob: (jobId: string): Promise<void> => ipcRenderer.invoke(ipcChannels.historyRestore, jobId),
   deleteHistoryJobForever: (jobId: string): Promise<void> =>
     ipcRenderer.invoke(ipcChannels.historyDeleteForever, jobId),
+  listGalleryItems: (): Promise<PersonalGalleryItem[]> => ipcRenderer.invoke(ipcChannels.galleryList),
+  addGalleryItem: (request: AddPersonalGalleryItemRequest): Promise<PersonalGalleryItem> =>
+    ipcRenderer.invoke(ipcChannels.galleryAdd, request),
+  removeGalleryItem: (itemId: string): Promise<void> => ipcRenderer.invoke(ipcChannels.galleryRemove, itemId),
+  reorderGalleryItems: (itemIds: string[]): Promise<PersonalGalleryItem[]> =>
+    ipcRenderer.invoke(ipcChannels.galleryReorder, itemIds),
   selectExportFolder: (): Promise<string> => ipcRenderer.invoke(ipcChannels.exportSelectDir),
   exportImages: (request: ExportRequest) => ipcRenderer.invoke(ipcChannels.exportImages, request),
   exportVideos: (request: ExportVideosRequest) => ipcRenderer.invoke(ipcChannels.exportVideos, request),
   saveEditedImage: (request: SaveEditedImageRequest): Promise<SaveEditedImageResponse> =>
     ipcRenderer.invoke(ipcChannels.exportSaveEditedImage, request),
-  toFileUrl: (filePath: string) => pathToFileURL(filePath).toString(),
+  toFileUrl: (filePath: string) => `product-shot-media://file/${encodeURIComponent(filePath)}`,
   onOpenSettings: (callback: () => void) => {
     const listener = () => callback();
     ipcRenderer.on(ipcChannels.menuOpenSettings, listener);
