@@ -4,6 +4,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, shell } from 
 import { ipcChannels } from "../shared/ipc";
 import type {
   AddPersonalGalleryItemRequest,
+  DeleteHistoryResultRequest,
   ExportRequest,
   ExportVideosRequest,
   ProductShotRequest,
@@ -309,6 +310,10 @@ function registerIpc(): void {
   ipcMain.handle(ipcChannels.historyDeleteForever, (_event, jobId: string) => {
     const session = accountService.requireSession();
     return database.deleteJobForever(jobId, session.userId);
+  });
+  ipcMain.handle(ipcChannels.historyDeleteResult, (_event, request: DeleteHistoryResultRequest) => {
+    const session = accountService.requireSession();
+    return database.deleteJobResult(session.userId, request);
   });
   ipcMain.handle(ipcChannels.galleryList, () => {
     const session = accountService.requireSession();

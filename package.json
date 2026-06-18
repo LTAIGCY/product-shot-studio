@@ -1,6 +1,6 @@
 {
   "name": "product-shot-studio",
-  "version": "0.3.0",
+  "version": "0.3.4",
   "private": true,
   "description": "Windows desktop MVP for generating commercial product showcase images with mainstream image models.",
   "author": "Product Shot Studio",
@@ -31,6 +31,8 @@
     "lint": "npm run typecheck"
   },
   "dependencies": {
+    "@gsap/react": "^2.1.2",
+    "gsap": "^3.15.0",
     "sql.js": "^1.12.0"
   },
   "optionalDependencies": {

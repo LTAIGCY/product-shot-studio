@@ -56,6 +56,7 @@ export interface PersonalGalleryItem {
   id: string;
   userId: string;
   imagePath: string;
+  mediaType: MediaType;
   title: string;
   providerId?: ProviderId;
   modelId?: string;
@@ -67,11 +68,24 @@ export interface PersonalGalleryItem {
 
 export interface AddPersonalGalleryItemRequest {
   imagePath: string;
+  mediaType?: MediaType;
   title: string;
   providerId?: ProviderId;
   modelId?: string;
   jobId?: string;
   presetId?: PresetId;
+}
+
+export interface DeleteHistoryResultRequest {
+  jobId: string;
+  mediaType: MediaType;
+  resultPath: string;
+}
+
+export interface DeleteHistoryResultResponse {
+  removed: boolean;
+  movedToTrash: boolean;
+  job?: StudioJob;
 }
 
 export interface ProductShotJob {

@@ -30,6 +30,7 @@ export const ipcChannels = {
   historyTrash: "history:trash",
   historyRestore: "history:restore",
   historyDeleteForever: "history:delete-forever",
+  historyDeleteResult: "history:delete-result",
   galleryList: "gallery:list",
   galleryAdd: "gallery:add",
   galleryRemove: "gallery:remove",

@@ -13,9 +13,12 @@ import {
   AlertCircle,
   ArrowLeft,
   ArrowRight,
+  Box,
   Check,
+  CheckCircle2,
   ChevronDown,
   ChevronUp,
+  CircleAlert,
   Clock3,
   CreditCard,
   Download,
@@ -26,14 +29,19 @@ import {
   HelpCircle,
   History,
   ImagePlus,
+  ImageOff,
   Images,
+  Info,
   KeyRound,
   LayoutGrid,
   Loader2,
   LogOut,
+  MapPin,
   Megaphone,
   Play,
   QrCode,
+  RectangleHorizontal,
+  RectangleVertical,
   RotateCcw,
   Rows2,
   Save,
@@ -49,6 +57,9 @@ import {
   ZoomIn,
   ZoomOut
 } from "lucide-react";
+import { gsap } from "gsap";
+import { useGSAP } from "@gsap/react";
+import { createPortal } from "react-dom";
 import { productShotPresets } from "@shared/presets";
 import { providerConfigs, providerOrder } from "@shared/providers";
 import {
@@ -83,6 +94,7 @@ import type {
   ImageQuality,
   ImportedImage,
   LocalAccountSummary,
+  MediaType,
   PersonalGalleryItem,
   PresetId,
   ProductShotJob,
@@ -91,6 +103,7 @@ import type {
   SecretStatus,
   StudioJob,
   VideoGenerationJob,
+  VideoGenerationResult,
   VideoModelMetadata,
   VideoProgress,
   VideoResolution,
@@ -102,16 +115,45 @@ const aspectRatios: AspectRatio[] = ["1:1", "4:5", "16:9", "3:2"];
 const exportFormats: ExportFormat[] = ["png", "jpg", "webp"];
 type AppPage = "image" | "video" | "gallery" | "personal" | "updates" | "settings";
 type PersonalCenterTab = "overview" | "history" | "recharge" | "transactions" | "trash";
-type StatusTone = "normal" | "warn";
+type StatusTone = "normal" | "success" | "warn" | "error";
 type ExportFeedback = "idle" | "running" | "done";
+type ExportNotice = {
+  tone: "success" | "error";
+  title: string;
+  message: string;
+  detail?: string;
+};
 type GenerateMode = "single" | "batch";
 type PreviewCompareLayout = "grid-2x2" | "grid-3x3" | "grid-4x4" | "custom" | "adaptive";
+type ImageConfigPanel = "model" | "ratio" | "count";
+type VideoConfigPanel = "model" | "ratio" | "duration";
 type PreviewImage = {
   src: string;
   filePath?: string;
   title: string;
   subtitle?: string;
   fileName?: string;
+};
+type PreviewVideo = {
+  src: string;
+  filePath: string;
+  title: string;
+  subtitle?: string;
+  fileName?: string;
+};
+type ResultDeleteTarget = {
+  mediaType: MediaType;
+  resultPath: string;
+  jobId?: string;
+  title: string;
+  detail: string;
+};
+type ResultDeleteScope = "current" | "history";
+type WorkflowStepState = {
+  label: string;
+  description: string;
+  done: boolean;
+  active: boolean;
 };
 type ComparisonLibrarySource = "current" | "history" | "gallery";
 type ComparisonLibraryImage = PreviewImage & {
@@ -141,6 +183,8 @@ type WorkspaceLayoutSize = {
   resultHeight: number;
 };
 type WorkspaceLayoutKind = "image" | "video";
+
+gsap.registerPlugin(useGSAP);
 
 const providerBrandMeta: Record<ProviderId, ProviderBrandMeta> = {
   aliyun: { mark: "百", shortName: "Ali", label: "阿里百炼" },
@@ -481,6 +525,7 @@ export function App() {
   const [videoProviderId, setVideoProviderId] = useState<ProviderId>("aliyun");
   const [videoModelId, setVideoModelId] = useState("wanx2.1-i2v-turbo");
   const [videoPrompt, setVideoPrompt] = useState("");
+  const [selectedVideoPresetId, setSelectedVideoPresetId] = useState<PresetId>("custom");
   const [videoAspectRatio, setVideoAspectRatio] = useState<AspectRatio>("16:9");
   const [videoDurationSeconds, setVideoDurationSeconds] = useState(5);
   const [tencentVodSubAppId, setTencentVodSubAppId] = useState(() => readSavedTencentVodSubAppId());
@@ -488,6 +533,8 @@ export function App() {
   const [videoWorkspaceLayout, setVideoWorkspaceLayout] = useState(() => readWorkspaceLayout("video"));
   const [importedImages, setImportedImages] = useState<ImportedImage[]>([]);
   const [activeImagePath, setActiveImagePath] = useState<string | null>(null);
+  const [videoImportedImages, setVideoImportedImages] = useState<ImportedImage[]>([]);
+  const [activeVideoImagePath, setActiveVideoImagePath] = useState<string | null>(null);
   const [history, setHistory] = useState<StudioJob[]>([]);
   const [trashedHistory, setTrashedHistory] = useState<StudioJob[]>([]);
   const [galleryItems, setGalleryItems] = useState<PersonalGalleryItem[]>([]);
@@ -503,18 +550,23 @@ export function App() {
   const [currentVideoJobId, setCurrentVideoJobId] = useState<string | null>(null);
   const [statusText, setStatusText] = useState("");
   const [statusTone, setStatusTone] = useState<StatusTone>("normal");
+  const [statusSequence, setStatusSequence] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [exportFeedback, setExportFeedback] = useState<ExportFeedback>("idle");
+  const [exportNotice, setExportNotice] = useState<ExportNotice | null>(null);
   const [imageExportCompleted, setImageExportCompleted] = useState(false);
   const [videoExportCompleted, setVideoExportCompleted] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [videoDragActive, setVideoDragActive] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [pendingGenerateMode, setPendingGenerateMode] = useState<GenerateMode | null>(null);
   const [defaultExportDir, setDefaultExportDir] = useState("");
   const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null);
+  const [previewVideo, setPreviewVideo] = useState<PreviewVideo | null>(null);
   const [previewComparisonImages, setPreviewComparisonImages] = useState<PreviewImage[]>([]);
-  const [modelSectionCollapsed, setModelSectionCollapsed] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ResultDeleteTarget | null>(null);
+  const [openImageConfigPanel, setOpenImageConfigPanel] = useState<ImageConfigPanel | null>(null);
 
   function updateExportFormat(format: ExportFormat) {
     setExportFormatState(format);
@@ -547,6 +599,8 @@ export function App() {
   const failedPresetIds = useMemo(() => getFailedPresetIds(activeJob), [activeJob]);
   const canRetryFailed = Boolean(activeJob && failedPresetIds.length > 0 && !isGenerating);
   const activeImage = importedImages.find((image) => image.sourceImagePath === activeImagePath) ?? importedImages[0] ?? null;
+  const activeVideoImage =
+    videoImportedImages.find((image) => image.sourceImagePath === activeVideoImagePath) ?? videoImportedImages[0] ?? null;
   const estimateRequest = useMemo(
     () => ({
       sourceImagePath: activeImage?.sourceImagePath ?? "",
@@ -589,19 +643,19 @@ export function App() {
   const hiddenVideoResolution = getDefaultHiddenVideoResolution(selectedVideoModel);
   const videoEstimateRequest = useMemo(
     () => ({
-      sourceImagePath: activeImage?.sourceImagePath ?? "",
+      sourceImagePath: activeVideoImage?.sourceImagePath ?? "",
       providerId: videoProviderId,
       modelId: videoModelId,
       tencentVodSubAppId,
       prompt: videoPrompt,
       aspectRatio: videoAspectRatio,
-      durationSeconds: videoDurationSeconds,
+      durationSeconds: clampVideoDuration(videoDurationSeconds),
       resolution: hiddenVideoResolution,
       watermark: false,
       enableAudio: false
     }),
     [
-      activeImage?.sourceImagePath,
+      activeVideoImage?.sourceImagePath,
       videoProviderId,
       videoModelId,
       tencentVodSubAppId,
@@ -633,7 +687,7 @@ export function App() {
     importedImages.length > 0 && configuredProvider && selectedPresets.length > 0 && !isGenerating && hasEnoughBatchBalance
   );
   const canGenerateVideo = Boolean(
-    activeImage &&
+    activeVideoImage &&
       videoProviderConfigured &&
       videoSupported &&
       !videoSetupWarning &&
@@ -641,65 +695,72 @@ export function App() {
       hasEnoughVideoBalance
   );
   const workflowResultCount = results.length;
-  const hasCurrentWork = Boolean(activeImage);
+  const hasImageWork = Boolean(activeImage);
+  const hasVideoWork = Boolean(activeVideoImage);
   const workflowSteps = useMemo(
-    () => [
+    () => gateWorkflowSteps([
       {
         label: uiText.workflowImport,
         description: "上传商品图，支持拖拽或批量导入",
-        done: hasCurrentWork,
-        active: !hasCurrentWork
+        done: hasImageWork,
+        active: !hasImageWork
       },
       {
         label: uiText.workflowConfigure,
         description: "选择模型与生成参数",
-        done: hasCurrentWork && configuredProvider && selectedPresets.length > 0,
-        active: hasCurrentWork && (!configuredProvider || selectedPresets.length === 0)
+        done: hasImageWork && configuredProvider && selectedPresets.length > 0,
+        active: hasImageWork && (!configuredProvider || selectedPresets.length === 0)
       },
       {
         label: uiText.workflowGenerate,
         description: "AI 生成优质商品图",
-        done: workflowResultCount > 0,
-        active: hasCurrentWork && configuredProvider && selectedPresets.length > 0 && workflowResultCount === 0
+        done: hasImageWork && configuredProvider && selectedPresets.length > 0 && workflowResultCount > 0,
+        active: hasImageWork && configuredProvider && selectedPresets.length > 0 && (isGenerating || workflowResultCount === 0)
       },
       {
         label: uiText.workflowExport,
         description: "下载图片或专业素材",
-        done: imageExportCompleted,
-        active: workflowResultCount > 0 && !imageExportCompleted
+        done: hasImageWork && workflowResultCount > 0 && imageExportCompleted,
+        active: hasImageWork && workflowResultCount > 0 && !imageExportCompleted
       }
-    ],
-    [configuredProvider, hasCurrentWork, imageExportCompleted, selectedPresets.length, workflowResultCount]
+    ]),
+    [configuredProvider, hasImageWork, imageExportCompleted, isGenerating, selectedPresets.length, workflowResultCount]
   );
   const videoWorkflowSteps = useMemo(
-    () => [
+    () => gateWorkflowSteps([
       {
         label: uiText.workflowImport,
         description: "上传商品图，作为图生视频首帧参考",
-        done: hasCurrentWork,
-        active: !hasCurrentWork
+        done: hasVideoWork,
+        active: !hasVideoWork
       },
       {
         label: uiText.workflowConfigure,
         description: "选择视频模型、比例和时长",
-        done: hasCurrentWork && videoProviderConfigured && videoSupported && !videoSetupWarning,
-        active: hasCurrentWork && (!videoProviderConfigured || !videoSupported || Boolean(videoSetupWarning))
+        done: hasVideoWork && videoProviderConfigured && videoSupported && !videoSetupWarning,
+        active: hasVideoWork && (!videoProviderConfigured || !videoSupported || Boolean(videoSetupWarning))
       },
       {
         label: uiText.workflowGenerate,
         description: "AI 生成商品视频",
-        done: videoResults.length > 0,
-        active: hasCurrentWork && videoProviderConfigured && videoSupported && !videoSetupWarning && videoResults.length === 0
+        done: hasVideoWork && videoProviderConfigured && videoSupported && !videoSetupWarning && videoResults.length > 0,
+        active:
+          hasVideoWork &&
+          videoProviderConfigured &&
+          videoSupported &&
+          !videoSetupWarning &&
+          (isGeneratingVideo || videoResults.length === 0)
       },
       {
         label: uiText.workflowExport,
         description: "导出视频素材",
-        done: videoExportCompleted,
-        active: videoResults.length > 0 && !videoExportCompleted
+        done: hasVideoWork && videoResults.length > 0 && videoExportCompleted,
+        active: hasVideoWork && videoResults.length > 0 && !videoExportCompleted
       }
-    ],
+    ]),
     [
-      hasCurrentWork,
+      hasVideoWork,
+      isGeneratingVideo,
       videoExportCompleted,
       videoProviderConfigured,
       videoResults.length,
@@ -819,7 +880,23 @@ export function App() {
   function showStatus(message: string, tone: StatusTone = "normal") {
     setStatusText(message);
     setStatusTone(tone);
+    setStatusSequence((current) => current + 1);
   }
+
+  useEffect(() => {
+    if (!statusText) return;
+    const timeout = window.setTimeout(() => setStatusText(""), statusTone === "normal" ? 5200 : 4400);
+    return () => window.clearTimeout(timeout);
+  }, [statusSequence, statusText, statusTone]);
+
+  useEffect(() => {
+    if (!exportNotice) return;
+    const timeout = window.setTimeout(
+      () => setExportNotice(null),
+      exportNotice.tone === "error" ? 8000 : 6200
+    );
+    return () => window.clearTimeout(timeout);
+  }, [exportNotice]);
 
   function prependSessionResults(nextResults: ProductShotResult[]) {
     if (nextResults.length === 0) return;
@@ -873,6 +950,7 @@ export function App() {
     try {
       const item = await window.productStudio.addGalleryItem({
         imagePath: result.imagePath,
+        mediaType: "image",
         title: getPresetName(result.presetId),
         providerId: result.providerId,
         modelId: result.modelId,
@@ -886,27 +964,39 @@ export function App() {
     }
   }
 
-  async function addJobResultsToGallery(job: ProductShotJob) {
+  async function addJobResultsToGallery(job: StudioJob) {
     if (job.results.length === 0) {
-      showStatus("该历史任务没有可加入图库的图片。", "warn");
+      showStatus("该历史任务没有可加入图库的作品。", "warn");
       return;
     }
     try {
       await Promise.all(
-        job.results.map((result) =>
-          window.productStudio.addGalleryItem({
-            imagePath: result.imagePath,
-            title: getPresetName(result.presetId),
-            providerId: result.providerId,
-            modelId: result.modelId,
-            jobId: job.id,
-            presetId: result.presetId
-          })
-        )
+        isVideoJob(job)
+          ? job.results.map((result) =>
+              window.productStudio.addGalleryItem({
+                imagePath: result.videoPath,
+                mediaType: "video",
+                title: getVideoModelDisplayName(result.providerId, result.modelId),
+                providerId: result.providerId,
+                modelId: result.modelId,
+                jobId: job.id
+              })
+            )
+          : job.results.map((result) =>
+              window.productStudio.addGalleryItem({
+                imagePath: result.imagePath,
+                mediaType: "image",
+                title: getPresetName(result.presetId),
+                providerId: result.providerId,
+                modelId: result.modelId,
+                jobId: job.id,
+                presetId: result.presetId
+              })
+            )
       );
       const gallery = await window.productStudio.listGalleryItems();
       setGalleryItems(gallery);
-      showStatus(`已将 ${job.results.length} 张历史图片加入个人图库。`);
+      showStatus(`已将 ${job.results.length} ${isVideoJob(job) ? "个历史视频" : "张历史图片"}加入个人图库。`);
     } catch (error) {
       showStatus(error instanceof Error ? error.message : "加入个人图库失败。", "warn");
     }
@@ -948,7 +1038,7 @@ export function App() {
     setPreviewComparisonImages(previewImages.slice(1));
   }
 
-  async function handleFiles(files: FileList | null) {
+  async function handleFiles(files: FileList | null, target: "image" | "video" = "image") {
     if (!files || files.length === 0) return;
     const filePaths = Array.from(files).map((file) => window.productStudio.getFilePath(file)).filter(Boolean);
     if (filePaths.length === 0) {
@@ -958,14 +1048,36 @@ export function App() {
     try {
       showStatus(uiText.importing);
       const imported = await Promise.all(filePaths.map((filePath) => window.productStudio.importImage(filePath)));
-      appendImportedImages(imported);
+      appendImportedImages(imported, target);
       showStatus(uiText.imageReady);
     } catch (error) {
       showStatus(error instanceof Error ? error.message : uiText.importFailed, "warn");
     }
   }
 
-  async function selectImages() {
+  async function addVideoResultToGallery(result: VideoGenerationResult, jobId?: string) {
+    const existing = galleryItems.find((item) => item.imagePath === result.videoPath);
+    if (existing) {
+      showStatus("这个视频已经在个人图库中。");
+      return;
+    }
+    try {
+      const item = await window.productStudio.addGalleryItem({
+        imagePath: result.videoPath,
+        mediaType: "video",
+        title: getVideoModelDisplayName(result.providerId, result.modelId),
+        providerId: result.providerId,
+        modelId: result.modelId,
+        jobId
+      });
+      setGalleryItems((current) => [...current, item].sort((a, b) => a.sortOrder - b.sortOrder));
+      showStatus("视频已加入个人图库。");
+    } catch (error) {
+      showStatus(error instanceof Error ? error.message : "加入个人图库失败。", "warn");
+    }
+  }
+
+  async function selectImages(target: "image" | "video" = "image") {
     try {
       showStatus(uiText.importing);
       const imported = await window.productStudio.selectImages();
@@ -973,14 +1085,27 @@ export function App() {
         showStatus(uiText.imageCanceled);
         return;
       }
-      appendImportedImages(imported);
+      appendImportedImages(imported, target);
       showStatus(uiText.imageReady);
     } catch (error) {
       showStatus(error instanceof Error ? error.message : uiText.importFailed, "warn");
     }
   }
 
-  function appendImportedImages(images: ImportedImage[]) {
+  function appendImportedImages(images: ImportedImage[], target: "image" | "video" = "image") {
+    if (target === "video") {
+      setVideoImportedImages((current) => {
+        const next = [...current, ...images];
+        if (!activeVideoImagePath && next[0]) {
+          setActiveVideoImagePath(next[0].sourceImagePath);
+        }
+        return next;
+      });
+      setActiveVideoJob(null);
+      setVideoProgress(null);
+      return;
+    }
+
     setImportedImages((current) => {
       const next = [...current, ...images];
       if (!activeImagePath && next[0]) {
@@ -992,7 +1117,19 @@ export function App() {
     setProgress({});
   }
 
-  function deleteImage(imagePath: string) {
+  function deleteImage(imagePath: string, target: "image" | "video" = "image") {
+    if (target === "video") {
+      setVideoImportedImages((current) => {
+        const next = current.filter((image) => image.sourceImagePath !== imagePath);
+        if (activeVideoImagePath === imagePath) {
+          setActiveVideoImagePath(next[0]?.sourceImagePath ?? null);
+        }
+        return next;
+      });
+      setActiveVideoJob(null);
+      return;
+    }
+
     setImportedImages((current) => {
       const next = current.filter((image) => image.sourceImagePath !== imagePath);
       if (activeImagePath === imagePath) {
@@ -1003,7 +1140,16 @@ export function App() {
     setActiveJob(null);
   }
 
-  function clearImages() {
+  function clearImages(target: "image" | "video" = "image") {
+    if (target === "video") {
+      setVideoImportedImages([]);
+      setActiveVideoImagePath(null);
+      setActiveVideoJob(null);
+      setVideoProgress(null);
+      showStatus(uiText.imagesCleared);
+      return;
+    }
+
     setImportedImages([]);
     setActiveImagePath(null);
     setActiveJob(null);
@@ -1139,7 +1285,7 @@ export function App() {
   }
 
   async function generateVideo() {
-    if (!activeImage) return;
+    if (!activeVideoImage) return;
     setIsGeneratingVideo(true);
     setCurrentVideoJobId(null);
     setVideoProgress(null);
@@ -1147,13 +1293,13 @@ export function App() {
 
     try {
       const job = await window.productStudio.generateProductVideo({
-        sourceImagePath: activeImage.sourceImagePath,
+        sourceImagePath: activeVideoImage.sourceImagePath,
         providerId: videoProviderId,
         modelId: videoModelId,
         tencentVodSubAppId,
         prompt: videoPrompt.trim(),
         aspectRatio: videoAspectRatio,
-        durationSeconds: videoDurationSeconds,
+        durationSeconds: clampVideoDuration(videoDurationSeconds),
         resolution: hiddenVideoResolution,
         watermark: false,
         enableAudio: false
@@ -1193,6 +1339,7 @@ export function App() {
       return;
     }
     setExportFeedback("running");
+    setExportNotice(null);
     showStatus(uiText.exporting);
     try {
       const targetDir = defaultExportDir || (await resolveDefaultExportDir());
@@ -1200,17 +1347,29 @@ export function App() {
       if (response.exportedPaths.length > 0) {
         setExportFeedback("done");
         setImageExportCompleted(true);
-        showStatus(`${uiText.exportComplete}\uff1a${response.exportedPaths.length} ${uiText.imageCountSuffix} / ${targetDir}`);
+        setStatusText("");
+        setExportNotice({
+          tone: "success",
+          title: "导出成功",
+          message: `${response.exportedPaths.length} 张图片已保存到`,
+          detail: targetDir
+        });
         window.setTimeout(() => {
           setExportFeedback((current) => (current === "done" ? "idle" : current));
         }, 1600);
       } else {
         setExportFeedback("idle");
-        showStatus(uiText.exportCanceled, "warn");
+        setExportNotice(null);
+        showStatus("已取消导出，未保存任何图片。");
       }
     } catch (error) {
       setExportFeedback("idle");
-      showStatus(error instanceof Error ? error.message : uiText.exportCanceled, "warn");
+      setStatusText("");
+      setExportNotice({
+        tone: "error",
+        title: "导出失败",
+        message: error instanceof Error ? error.message : "未获得具体错误信息。"
+      });
     }
   }
 
@@ -1220,6 +1379,7 @@ export function App() {
       return;
     }
     setExportFeedback("running");
+    setExportNotice(null);
     showStatus(uiText.exporting);
     try {
       const targetDir = defaultExportDir || (await resolveDefaultExportDir());
@@ -1227,18 +1387,38 @@ export function App() {
       if (response.exportedPaths.length > 0) {
         setExportFeedback("done");
         setVideoExportCompleted(true);
-        showStatus(`${uiText.exportComplete}\uff1a${response.exportedPaths.length} ${uiText.exportVideo} / ${targetDir}`);
+        setStatusText("");
+        setExportNotice({
+          tone: "success",
+          title: "导出成功",
+          message: `${response.exportedPaths.length} 个视频已保存到`,
+          detail: targetDir
+        });
         window.setTimeout(() => {
           setExportFeedback((current) => (current === "done" ? "idle" : current));
         }, 1600);
       } else {
         setExportFeedback("idle");
-        showStatus(uiText.exportCanceled, "warn");
+        setExportNotice(null);
+        showStatus("已取消导出，未保存任何视频。");
       }
     } catch (error) {
       setExportFeedback("idle");
-      showStatus(error instanceof Error ? error.message : uiText.exportCanceled, "warn");
+      setStatusText("");
+      setExportNotice({
+        tone: "error",
+        title: "导出失败",
+        message: error instanceof Error ? error.message : "未获得具体错误信息。"
+      });
     }
+  }
+
+  async function exportHistoryJob(job: StudioJob) {
+    if (isVideoJob(job)) {
+      await exportVideoPaths(job.results.map((result) => result.videoPath));
+      return;
+    }
+    await exportImagePaths(job.results.map((result) => result.imagePath));
   }
 
   async function trashHistoryJob(jobId: string) {
@@ -1288,38 +1468,126 @@ export function App() {
     }
   }
 
+  async function exportAllVideos() {
+    await exportVideoPaths(videoResults.map((result) => result.videoPath));
+  }
+
+  function selectVideoPreset(presetId: PresetId) {
+    setSelectedVideoPresetId(presetId);
+    const preset = productShotPresets.find((item) => item.id === presetId);
+    if (preset?.prompt) {
+      setVideoPrompt(preset.prompt);
+    }
+  }
+
   function selectImageModel(option: ImageModelOption) {
     setProviderId(option.providerId);
     setModelId(option.modelId);
     persistModelSelection(option.providerId, option.modelId);
+    setOpenImageConfigPanel(null);
   }
 
-  function toggleModelSection() {
-    setModelSectionCollapsed((current) => !current);
+  function toggleImageConfigPanel(panel: ImageConfigPanel) {
+    setOpenImageConfigPanel((current) => (current === panel ? null : panel));
+  }
+
+  function selectImageAspectRatio(ratio: AspectRatio) {
+    setAspectRatio(ratio);
+    setOpenImageConfigPanel(null);
+  }
+
+  function selectImageOutputCount(count: number) {
+    setOutputCount(clampOutputCount(count));
+    setOpenImageConfigPanel(null);
+  }
+
+  function requestDeleteImageResult(result: ProductShotResult, jobId?: string) {
+    setDeleteTarget({
+      mediaType: "image",
+      resultPath: result.imagePath,
+      jobId,
+      title: getPresetName(result.presetId),
+      detail: "删除后不会删除本地图片文件。你可以选择只从当前生成结果移除，或同时从历史作品中移除这条作品。"
+    });
+  }
+
+  function requestDeleteVideoResult(result: VideoGenerationResult, jobId?: string) {
+    setDeleteTarget({
+      mediaType: "video",
+      resultPath: result.videoPath,
+      jobId,
+      title: getVideoModelDisplayName(result.providerId, result.modelId),
+      detail: "删除后不会删除本地视频文件。你可以选择只从当前生成结果移除，或同时从历史作品中移除这条作品。"
+    });
+  }
+
+  function removeResultFromCurrentView(target: ResultDeleteTarget) {
+    if (target.mediaType === "video") {
+      setActiveVideoJob((current) => {
+        if (!current || (target.jobId && current.id !== target.jobId)) return current;
+        return {
+          ...current,
+          results: current.results.filter((result) => result.videoPath !== target.resultPath)
+        };
+      });
+      return;
+    }
+
+    setSessionImageResults((current) => current.filter((result) => result.imagePath !== target.resultPath));
+    setActiveJob((current) => {
+      if (!current || (target.jobId && current.id !== target.jobId)) return current;
+      return {
+        ...current,
+        results: current.results.filter((result) => result.imagePath !== target.resultPath)
+      };
+    });
+  }
+
+  async function confirmDeleteResult(syncHistory: boolean) {
+    if (!deleteTarget) return;
+    const target = deleteTarget;
+    setDeleteTarget(null);
+    removeResultFromCurrentView(target);
+
+    if (!syncHistory || !target.jobId) {
+      showStatus(syncHistory ? "已从当前结果移除；未找到可同步的历史任务。" : "已从当前生成结果移除。");
+      return;
+    }
+
+    try {
+      const response = await window.productStudio.deleteHistoryResult({
+        jobId: target.jobId,
+        mediaType: target.mediaType,
+        resultPath: target.resultPath
+      });
+      await refreshStatus();
+      if (!response.removed) {
+        showStatus("当前结果已移除，历史作品中未找到对应记录。", "warn");
+        return;
+      }
+      showStatus(response.movedToTrash ? "已从当前结果移除，并将空历史任务移入回收站。" : "已从当前结果和历史作品中移除。");
+    } catch (error) {
+      showStatus(error instanceof Error ? `当前结果已移除，历史同步失败：${error.message}` : "当前结果已移除，历史同步失败。", "warn");
+    }
   }
 
   function selectHistoryJob(job: ProductShotJob) {
-    setActiveJob(job);
-    setSessionImageResults(job.results);
-    syncFormFromJob(job);
     const firstResult = job.results[0];
     if (firstResult) {
+      setPreviewComparisonImages([]);
       setPreviewImage(createResultPreviewImage(firstResult));
       return;
     }
-    setActivePage("image");
+    showStatus(job.errors[0]?.message ?? "该历史作品没有可预览的图片。", "warn");
   }
 
   function selectVideoHistoryJob(job: VideoGenerationJob) {
-    setActiveVideoJob(job);
-    setActivePage("video");
-    if (isProviderId(job.request.providerId)) {
-      setVideoProviderId(job.request.providerId);
+    const firstResult = job.results[0];
+    if (firstResult) {
+      setPreviewVideo(createResultPreviewVideo(firstResult));
+      return;
     }
-    setVideoModelId(job.request.modelId);
-    setVideoPrompt(job.request.prompt);
-    setVideoAspectRatio(job.request.aspectRatio);
-    setVideoDurationSeconds(job.request.durationSeconds);
+    showStatus(job.errors[0]?.message ?? "该历史作品没有可预览的视频。", "warn");
   }
 
   function syncFormFromJob(job: ProductShotJob) {
@@ -1355,50 +1623,22 @@ export function App() {
     [progress, selectedPresets]
   );
 
-  const imageModelControls = (
-    <section className={`control-group model-control preset-model-control ${modelSectionCollapsed ? "collapsed" : ""}`}>
-      <div className="section-title">
-        <span>{uiText.model}</span>
-        <div className="section-actions">
-          <button className="icon-button" onClick={toggleModelSection} title={modelSectionCollapsed ? uiText.expandModel : uiText.collapseModel}>
-            {modelSectionCollapsed ? <ChevronDown size={17} /> : <ChevronUp size={17} />}
-          </button>
-          <button className="icon-button" onClick={() => setSettingsOpen(true)} title={uiText.apiKeys}>
-            <Settings size={17} />
-          </button>
-        </div>
-      </div>
-      {modelSectionCollapsed ? (
-        <button className="model-collapsed-card" onClick={toggleModelSection}>
-          <ProviderLogo providerId={providerId} />
-          <span className="model-collapsed-copy">
-            <strong>{getModelDisplayName(providerId, modelId)}</strong>
-          </span>
-        </button>
-      ) : (
-        <div className="model-picker compact-model-picker model-picker-unified">
-          <div className="model-option-list">
-            {modelOptions.map((option) => {
-              const active = providerId === option.providerId && modelId === option.modelId;
-              const configured = keyStatus.find((item) => item.providerId === option.providerId)?.configured;
-              return (
-                <button
-                  key={`${option.providerId}:${option.modelId}`}
-                  className={active ? "active" : ""}
-                  onClick={() => selectImageModel(option)}
-                >
-                  <ProviderLogo providerId={option.providerId} compact />
-                  <span className="model-option-copy">
-                    <strong>{option.displayName}</strong>
-                  </span>
-                  {configured ? <Check size={15} /> : <KeyRound size={15} />}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </section>
+  const imageConfigControls = (
+    <ImageQuickConfigPanel
+      openPanel={openImageConfigPanel}
+      providerId={providerId}
+      modelId={modelId}
+      modelOptions={modelOptions}
+      keyStatus={keyStatus}
+      aspectRatio={aspectRatio}
+      outputCount={outputCount}
+      onTogglePanel={toggleImageConfigPanel}
+      onModelSelect={selectImageModel}
+      onAspectRatioSelect={selectImageAspectRatio}
+      onOutputCountSelect={selectImageOutputCount}
+      onInvalidInput={(message) => showStatus(message, "warn")}
+      onOpenSettings={() => setSettingsOpen(true)}
+    />
   );
 
   if (!session) {
@@ -1468,11 +1708,13 @@ export function App() {
                     <span>{uiText.batchGenerate}（{batchOutputTotal}张）</span>
                     <small>{formatUsdCents(batchCostCents)}</small>
                   </button>
-                  <button className="primary-button generate-button cost-action-button" onClick={confirmGenerate} disabled={!canGenerate}>
-                    {isGenerating ? <Loader2 className="spin" size={18} /> : <Play size={18} />}
-                    <span>{uiText.generate}（{outputCount}张）</span>
-                    <small>{formatUsdCents(estimatedCostCents)}</small>
-                  </button>
+                  <GenerateActionButton
+                    loading={isGenerating}
+                    disabled={!canGenerate}
+                    onClick={confirmGenerate}
+                    label={`${uiText.generate}（${outputCount}张）`}
+                    cost={formatUsdCents(estimatedCostCents)}
+                  />
                 </div>
               </header>
 
@@ -1535,7 +1777,7 @@ export function App() {
                               <Upload size={17} />
                               {uiText.addImages}
                             </button>
-                            <button className="secondary-button" onClick={clearImages}>
+                            <button className="secondary-button" onClick={() => clearImages()}>
                               <Trash2 size={16} />
                               {uiText.clearImages}
                             </button>
@@ -1581,40 +1823,7 @@ export function App() {
                     </section>
 
                     <section className="preset-panel">
-                      {imageModelControls}
-                      <section className="embedded-output-panel">
-                        <div className="section-title">
-                          <span>{uiText.output}</span>
-                        </div>
-                        <div className="output-config-grid">
-                          <div className="output-config-field output-ratio-field">
-                            <span>{uiText.customAspectRatio}</span>
-                            <OutputDropdown
-                              value={aspectRatio}
-                              options={aspectRatios}
-                              customLabel="自定义比例"
-                              inputType="text"
-                              placeholder="1:1"
-                              onChange={setAspectRatio}
-                            />
-                          </div>
-                          <div className="output-config-field output-count-field">
-                            <span>{uiText.outputCount}</span>
-                            <OutputDropdown
-                              value={`${outputCount} 张`}
-                              options={[1, 2, 3, 4].map((item) => `${item} 张`)}
-                              customLabel="自定义张数"
-                              inputType="number"
-                              min={1}
-                              max={4}
-                              placeholder="1"
-                              customValue={String(outputCount)}
-                              onChange={(value) => setOutputCount(clampOutputCount(Number.parseInt(value, 10)))}
-                              onCustomChange={(value) => setOutputCount(clampOutputCount(Number.parseInt(value, 10)))}
-                            />
-                          </div>
-                        </div>
-                      </section>
+                      {imageConfigControls}
 
                       <section className="prompt-panel">
                         <div className="section-title">
@@ -1655,13 +1864,13 @@ export function App() {
                       </section>
                     </section>
 
-                    <section className="result-band">
-                    <div className="section-title">
+                    <section className={`result-band unified-result-band ${activeJob?.errors.length ? "has-errors" : ""}`}>
+                    <div className="section-title result-section-title">
                       <span>生成结果</span>
                       <div className="section-actions">
                         {activeJob?.errors.length ? <span className="error-count">{activeJob.errors.length} {uiText.errors}</span> : null}
                         <button
-                          className="secondary-button compact-button"
+                          className="secondary-button compact-button result-export-all-button"
                           onClick={() => void exportAll()}
                           disabled={results.length === 0 || isExporting}
                         >
@@ -1671,9 +1880,9 @@ export function App() {
                       </div>
                     </div>
                     {activeJob?.errors.length ? <FailurePanel job={activeJob} /> : null}
-                    <div className="result-grid">
+                    <ResultGridMotion signature={imageResultSignature}>
                       {results.length === 0 ? (
-                        <div className="empty-results">{uiText.waitingResults}</div>
+                        <ResultEmptyState mediaType="image" />
                       ) : (
                         results.map((result) => (
                           <figure key={`${result.presetId}-${result.imagePath}`} className="result-tile result-enter">
@@ -1683,15 +1892,21 @@ export function App() {
                             >
                               <img src={window.productStudio.toFileUrl(result.imagePath)} alt={result.presetId} />
                             </button>
-                            <figcaption>
-                              <span>{getPresetName(result.presetId)}</span>
-                              <small>{result.dimensions.width ? `${result.dimensions.width} x ${result.dimensions.height}` : result.modelId}</small>
+                            <figcaption className="result-actions-only">
                               <button
-                                className={`icon-button ${galleryItems.some((item) => item.imagePath === result.imagePath) ? "active" : ""}`}
+                                className={`icon-button ${
+                                  galleryItems.some((item) => getGalleryMediaType(item) === "image" && item.imagePath === result.imagePath)
+                                    ? "active"
+                                    : ""
+                                }`}
                                 onClick={() => void addResultToGallery(result, activeJob?.id)}
-                                title={galleryItems.some((item) => item.imagePath === result.imagePath) ? "已在个人图库" : "加入个人图库"}
+                                title={
+                                  galleryItems.some((item) => getGalleryMediaType(item) === "image" && item.imagePath === result.imagePath)
+                                    ? "已在个人图库"
+                                    : "加入个人图库"
+                                }
                               >
-                                {galleryItems.some((item) => item.imagePath === result.imagePath) ? (
+                                {galleryItems.some((item) => getGalleryMediaType(item) === "image" && item.imagePath === result.imagePath) ? (
                                   <Check size={14} />
                                 ) : (
                                   <FolderPlus size={14} />
@@ -1705,11 +1920,18 @@ export function App() {
                               >
                                 {isExporting ? <Loader2 className="spin" size={14} /> : <Download size={14} />}
                               </button>
+                              <button
+                                className="icon-button danger"
+                                onClick={() => requestDeleteImageResult(result, activeJob?.id)}
+                                title="删除结果"
+                              >
+                                <Trash2 size={14} />
+                              </button>
                             </figcaption>
                           </figure>
                         ))
                       )}
-                      </div>
+                    </ResultGridMotion>
                     </section>
                   </ResizableWorkspace>
                 </div>
@@ -1718,8 +1940,8 @@ export function App() {
           </main>
         ) : activePage === "video" ? (
           <VideoGenerationPage
-            activeImage={activeImage}
-            importedImages={importedImages}
+            activeImage={activeVideoImage}
+            importedImages={videoImportedImages}
             providerId={videoProviderId}
             modelId={videoModelId}
             modelOptions={videoModelOptions}
@@ -1737,22 +1959,48 @@ export function App() {
             progress={videoProgress}
             job={activeVideoJob}
             layout={videoWorkspaceLayout}
+            dragActive={videoDragActive}
+            selectedPresetId={selectedVideoPresetId}
             isGenerating={isGeneratingVideo}
             isExporting={isExporting}
             canGenerate={canGenerateVideo}
-            onSelectImage={selectImages}
-            onSelectImagePath={setActiveImagePath}
+            galleryPaths={new Set(galleryItems.filter((item) => getGalleryMediaType(item) === "video").map((item) => item.imagePath))}
+            onSelectImage={() => void selectImages("video")}
+            onSelectImagePath={setActiveVideoImagePath}
+            onPreviewImage={(image) => {
+              setPreviewImage({
+                src: image.previewDataUrl,
+                filePath: image.sourceImagePath,
+                title: uiText.selectImage,
+                subtitle: `${image.dimensions.width} x ${image.dimensions.height}`,
+                fileName: "source-video-product.png"
+              });
+            }}
+            onDeleteImage={(imagePath) => deleteImage(imagePath, "video")}
+            onClearImages={() => clearImages("video")}
+            onDragActiveChange={setVideoDragActive}
+            onDropFiles={(files) => void handleFiles(files, "video")}
             onModelSelect={(option) => {
               setVideoProviderId(option.providerId);
               setVideoModelId(option.modelId);
             }}
-            onPromptChange={setVideoPrompt}
+            onPromptChange={(prompt) => {
+              setVideoPrompt(prompt);
+              setSelectedVideoPresetId("custom");
+            }}
+            onPresetSelect={selectVideoPreset}
             onAspectRatioChange={setVideoAspectRatio}
             onDurationChange={(value) => setVideoDurationSeconds(clampVideoDuration(value))}
+            onInvalidInput={(message) => showStatus(message, "warn")}
+            onOpenSettings={() => setSettingsOpen(true)}
             onLayoutChange={updateVideoWorkspaceLayout}
             onGenerate={() => void generateVideo()}
             onCancel={() => void cancelVideoGeneration()}
+            onAddToGallery={(result) => void addVideoResultToGallery(result, activeVideoJob?.id)}
+            onPreviewVideo={(result) => setPreviewVideo(createResultPreviewVideo(result))}
             onExport={(videoPath) => void exportVideoPaths([videoPath])}
+            onExportAll={() => void exportAllVideos()}
+            onDelete={(result) => requestDeleteVideoResult(result, activeVideoJob?.id)}
           />
         ) : activePage === "gallery" ? (
           <PersonalGalleryPage
@@ -1760,6 +2008,10 @@ export function App() {
             selectedIds={selectedGalleryIds}
             onSelectedIdsChange={setSelectedGalleryIds}
             onPreview={(item) => {
+              if (getGalleryMediaType(item) === "video") {
+                setPreviewVideo(createGalleryPreviewVideo(item));
+                return;
+              }
               setPreviewComparisonImages([]);
               setPreviewImage(createGalleryPreviewImage(item));
             }}
@@ -1784,8 +2036,9 @@ export function App() {
             onDeleteForever={(jobId) => void deleteHistoryJobForever(jobId)}
             onSelectImage={selectHistoryJob}
             onSelectVideo={selectVideoHistoryJob}
-            galleryImagePaths={new Set(galleryItems.map((item) => item.imagePath))}
+            galleryPaths={new Set(galleryItems.map((item) => item.imagePath))}
             onAddToGallery={(job) => void addJobResultsToGallery(job)}
+            onExport={(job) => void exportHistoryJob(job)}
             onRecharged={(wallet) => {
               setWalletSummary(wallet);
               void refreshStatus();
@@ -1808,6 +2061,16 @@ export function App() {
         )}
       </div>
 
+      {statusText ? (
+        <StatusToast
+          key={statusSequence}
+          message={statusText}
+          tone={statusTone}
+          loading={isGenerating || isGeneratingVideo || isRefreshing || isExporting}
+          onClose={() => setStatusText("")}
+        />
+      ) : null}
+      {exportNotice ? <ExportResultNotice notice={exportNotice} onClose={() => setExportNotice(null)} /> : null}
       {settingsOpen ? (
         <ApiKeysDialog
           statuses={keyStatus}
@@ -1850,6 +2113,16 @@ export function App() {
             setPreviewComparisonImages([]);
           }}
           onSaved={(path) => showStatus(`${uiText.saved} ${path}`)}
+        />
+      ) : null}
+      {previewVideo ? (
+        <VideoPreviewDialog video={previewVideo} onClose={() => setPreviewVideo(null)} />
+      ) : null}
+      {deleteTarget ? (
+        <DeleteResultDialog
+          target={deleteTarget}
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={(scope) => void confirmDeleteResult(scope === "history")}
         />
       ) : null}
     </div>
@@ -1996,6 +2269,619 @@ function UpdateAnnouncementsPage() {
   );
 }
 
+function prefersReducedMotion(): boolean {
+  return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function GenerateActionButton(props: {
+  loading: boolean;
+  disabled: boolean;
+  onClick: () => void;
+  label: string;
+  cost: string;
+}) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  useGSAP(
+    () => {
+      const button = buttonRef.current;
+      if (!button || !props.loading || prefersReducedMotion()) return;
+      const tween = gsap.to(button, {
+        scale: 1.018,
+        duration: 0.56,
+        repeat: -1,
+        yoyo: true,
+        ease: "sine.inOut",
+        overwrite: "auto"
+      });
+      return () => tween.kill();
+    },
+    { scope: buttonRef, dependencies: [props.loading] }
+  );
+
+  return (
+    <button
+      ref={buttonRef}
+      className={`primary-button generate-button cost-action-button ${props.loading ? "is-loading" : ""}`}
+      onClick={props.onClick}
+      disabled={props.disabled}
+    >
+      {props.loading ? <Loader2 className="spin" size={18} /> : <Play size={18} />}
+      <span>{props.label}</span>
+      <small>{props.cost}</small>
+    </button>
+  );
+}
+
+function StatusToast(props: {
+  message: string;
+  tone: StatusTone;
+  loading: boolean;
+  onClose: () => void;
+}) {
+  const toastRef = useRef<HTMLDivElement>(null);
+  const Icon =
+    props.tone === "success"
+      ? CheckCircle2
+      : props.tone === "error" || props.tone === "warn"
+        ? CircleAlert
+        : Info;
+
+  useGSAP(
+    () => {
+      const toast = toastRef.current;
+      if (!toast) return;
+      const reduceMotion = prefersReducedMotion();
+      gsap.from(toast, {
+        x: reduceMotion ? 0 : 18,
+        y: reduceMotion ? 0 : -6,
+        autoAlpha: 0,
+        duration: reduceMotion ? 0.12 : 0.28,
+        ease: "power2.out",
+        overwrite: "auto"
+      });
+    },
+    { scope: toastRef, dependencies: [props.message, props.tone] }
+  );
+
+  return (
+    <div
+      ref={toastRef}
+      className={`status-toast status-toast-${props.tone}`}
+      role={props.tone === "error" || props.tone === "warn" ? "alert" : "status"}
+      aria-live={props.tone === "error" ? "assertive" : "polite"}
+    >
+      <span className="status-toast-icon">
+        {props.loading && props.tone === "normal" ? <Loader2 className="spin" size={19} /> : <Icon size={19} />}
+      </span>
+      <span>{props.message}</span>
+      <button className="icon-button" onClick={props.onClose} title="关闭提示" aria-label="关闭提示">
+        <X size={15} />
+      </button>
+    </div>
+  );
+}
+
+function ExportResultNotice(props: {
+  notice: ExportNotice;
+  onClose: () => void;
+}) {
+  const noticeRef = useRef<HTMLDivElement>(null);
+  const isSuccess = props.notice.tone === "success";
+
+  useGSAP(
+    () => {
+      const notice = noticeRef.current;
+      if (!notice) return;
+      const reduceMotion = prefersReducedMotion();
+      gsap.from(notice, {
+        x: reduceMotion ? 0 : 24,
+        y: reduceMotion ? 0 : -8,
+        autoAlpha: 0,
+        duration: reduceMotion ? 0.12 : 0.3,
+        ease: "power2.out",
+        clearProps: "transform,opacity,visibility"
+      });
+    },
+    { scope: noticeRef, dependencies: [props.notice] }
+  );
+
+  return (
+    <div
+      ref={noticeRef}
+      className={`export-result-notice export-result-notice-${props.notice.tone}`}
+      role={isSuccess ? "status" : "alert"}
+      aria-live={isSuccess ? "polite" : "assertive"}
+    >
+      <span className="export-result-notice-icon" aria-hidden="true">
+        {isSuccess ? <Check size={30} strokeWidth={2.6} /> : <CircleAlert size={30} strokeWidth={2.2} />}
+      </span>
+      <span className="export-result-notice-divider" />
+      <span className="export-result-notice-copy">
+        <strong>{props.notice.title}</strong>
+        <span>
+          {props.notice.message}
+          {props.notice.detail ? <em>{props.notice.detail}</em> : null}
+        </span>
+      </span>
+      <button className="export-result-notice-close" onClick={props.onClose} title="关闭提示" aria-label="关闭提示">
+        <X size={22} />
+      </button>
+    </div>
+  );
+}
+
+function AnimatedConfigPanel(props: {
+  children: ReactNode;
+  panelKey: string;
+  className?: string;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useGSAP(
+    () => {
+      const panel = panelRef.current;
+      if (!panel) return;
+      const reduceMotion = prefersReducedMotion();
+      gsap.from(panel, {
+        y: reduceMotion ? 0 : -8,
+        autoAlpha: 0,
+        duration: reduceMotion ? 0.12 : 0.24,
+        ease: "power2.out",
+        overwrite: "auto"
+      });
+      const items = panel.querySelectorAll<HTMLElement>(".config-panel-animate-item");
+      if (items.length > 0 && !reduceMotion) {
+        gsap.from(items, {
+          y: 8,
+          duration: 0.24,
+          stagger: 0.025,
+          ease: "power2.out",
+          overwrite: "auto",
+          clearProps: "transform"
+        });
+      }
+    },
+    { scope: panelRef, dependencies: [props.panelKey] }
+  );
+
+  return (
+    <div ref={panelRef} className={`config-panel-shell ${props.className ?? ""}`}>
+      {props.children}
+    </div>
+  );
+}
+
+function ResultGridMotion(props: {
+  signature: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  const gridRef = useRef<HTMLDivElement>(null);
+
+  useGSAP(
+    () => {
+      const grid = gridRef.current;
+      if (!grid) return;
+      const items = grid.querySelectorAll<HTMLElement>(".result-enter");
+      if (items.length === 0) return;
+      const reduceMotion = prefersReducedMotion();
+      gsap.from(items, {
+        y: reduceMotion ? 0 : 12,
+        autoAlpha: 0,
+        scale: reduceMotion ? 1 : 0.985,
+        duration: reduceMotion ? 0.12 : 0.34,
+        stagger: reduceMotion ? 0 : 0.035,
+        ease: "power2.out",
+        overwrite: "auto"
+      });
+    },
+    { scope: gridRef, dependencies: [props.signature] }
+  );
+
+  return (
+    <div ref={gridRef} className={props.className ?? "result-grid"}>
+      {props.children}
+    </div>
+  );
+}
+
+function ResultEmptyState(props: { mediaType: MediaType }) {
+  return (
+    <div className="result-empty-state">
+      <span className="result-empty-visual" aria-hidden="true">
+        {props.mediaType === "video" ? <Video size={50} strokeWidth={1.6} /> : <Images size={50} strokeWidth={1.6} />}
+        <Sparkles size={22} strokeWidth={1.8} />
+      </span>
+      <strong>等待生成结果</strong>
+      <p>生成完成后将在这里展示，可一键导出全部结果</p>
+    </div>
+  );
+}
+
+function ImageQuickConfigPanel(props: {
+  openPanel: ImageConfigPanel | null;
+  providerId: ProviderId;
+  modelId: string;
+  modelOptions: ImageModelOption[];
+  keyStatus: SecretStatus[];
+  aspectRatio: AspectRatio;
+  outputCount: number;
+  onTogglePanel: (panel: ImageConfigPanel) => void;
+  onModelSelect: (model: ImageModelOption) => void;
+  onAspectRatioSelect: (ratio: AspectRatio) => void;
+  onOutputCountSelect: (count: number) => void;
+  onInvalidInput: (message: string) => void;
+  onOpenSettings: () => void;
+}) {
+  const currentModelName = getModelDisplayName(props.providerId, props.modelId);
+
+  return (
+    <section className="quick-config-panel image-quick-config-panel">
+      <div className="quick-config-toolbar" aria-label="图片生成配置">
+        <button className={props.openPanel === "model" ? "active" : ""} onClick={() => props.onTogglePanel("model")}>
+          <Box size={18} />
+          <span>{uiText.model}</span>
+          <small>{currentModelName}</small>
+          {props.openPanel === "model" ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </button>
+        <button className={props.openPanel === "ratio" ? "active" : ""} onClick={() => props.onTogglePanel("ratio")}>
+          <MapPin size={18} />
+          <span>比例</span>
+          <small>{props.aspectRatio}</small>
+          {props.openPanel === "ratio" ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </button>
+        <button className={props.openPanel === "count" ? "active" : ""} onClick={() => props.onTogglePanel("count")}>
+          <Images size={18} />
+          <span>{uiText.outputCount}</span>
+          <small>{props.outputCount}张</small>
+          {props.openPanel === "count" ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </button>
+      </div>
+      {props.openPanel ? (
+        <AnimatedConfigPanel panelKey={`image-${props.openPanel}`}>
+          {props.openPanel === "model" ? (
+            <ConfigPanelHeading
+              title={uiText.model}
+              onCollapse={() => props.onTogglePanel("model")}
+              onOpenSettings={props.onOpenSettings}
+            />
+          ) : null}
+          {props.openPanel === "model" ? (
+            <div className="config-model-picker image-config-model-picker">
+              <div className="config-model-grid">
+                {props.modelOptions.map((option) => {
+                  const active = props.providerId === option.providerId && props.modelId === option.modelId;
+                  const configured = props.keyStatus.find((item) => item.providerId === option.providerId)?.configured;
+                  return (
+                    <ModelOptionCard
+                      key={`${option.providerId}:${option.modelId}`}
+                      providerId={option.providerId}
+                      displayName={option.displayName}
+                      active={active}
+                      configured={Boolean(configured)}
+                      onClick={() => props.onModelSelect(option)}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+          {props.openPanel === "ratio" ? (
+            <div className="config-selection-layout ratio-selection-layout">
+              <AspectRatioOptionGrid
+                options={aspectRatios}
+                value={props.aspectRatio}
+                onSelect={props.onAspectRatioSelect}
+              />
+              <ManualAspectRatioInput
+                value={props.aspectRatio}
+                onCommit={props.onAspectRatioSelect}
+                onInvalid={props.onInvalidInput}
+              />
+            </div>
+          ) : null}
+          {props.openPanel === "count" ? (
+            <div className="config-selection-layout count-selection-layout">
+              <OutputCountOptionGrid value={props.outputCount} onSelect={props.onOutputCountSelect} />
+              <ManualOutputCountInput value={props.outputCount} onCommit={props.onOutputCountSelect} />
+            </div>
+          ) : null}
+        </AnimatedConfigPanel>
+      ) : null}
+    </section>
+  );
+}
+
+function ConfigPanelHeading(props: {
+  title: string;
+  onCollapse: () => void;
+  onOpenSettings: () => void;
+}) {
+  return (
+    <div className="config-panel-heading">
+      <span className="config-panel-title">{props.title}</span>
+      <span className="config-panel-heading-actions">
+        <button className="icon-button" onClick={props.onCollapse} title="收起">
+          <ChevronUp size={18} />
+        </button>
+        <button className="icon-button" onClick={props.onOpenSettings} title={uiText.apiKeys}>
+          <Settings size={18} />
+        </button>
+      </span>
+    </div>
+  );
+}
+
+function ModelOptionCard(props: {
+  providerId: ProviderId;
+  displayName: string;
+  active: boolean;
+  configured: boolean;
+  onClick: () => void;
+}) {
+  const [tooltipPosition, setTooltipPosition] = useState<{ left: number; top: number } | null>(null);
+  const nameRef = useRef<HTMLElement>(null);
+
+  function showTooltip(event: MouseEvent<HTMLButtonElement>) {
+    const name = nameRef.current;
+    if (!name || name.scrollWidth <= name.clientWidth) {
+      setTooltipPosition(null);
+      return;
+    }
+    const maxLeft = Math.max(8, window.innerWidth - 328);
+    const maxTop = Math.max(8, window.innerHeight - 54);
+    setTooltipPosition({
+      left: Math.max(8, Math.min(event.clientX, maxLeft)),
+      top: Math.max(8, Math.min(event.clientY, maxTop))
+    });
+  }
+
+  return (
+    <>
+      <button
+        className={`config-model-card config-panel-animate-item ${props.active ? "active" : ""}`}
+        onClick={props.onClick}
+        onMouseEnter={showTooltip}
+        onMouseMove={showTooltip}
+        onMouseLeave={() => setTooltipPosition(null)}
+        aria-label={props.displayName}
+      >
+        <ProviderLogo providerId={props.providerId} compact />
+        <strong ref={nameRef}>{props.displayName}</strong>
+        <span className="config-model-access" title={props.configured ? "接口已配置" : "需要配置接口密钥"}>
+          {props.configured ? <Check size={17} /> : <KeyRound size={17} />}
+        </span>
+        {props.active ? (
+          <span className="config-selected-badge">
+            <Check size={16} />
+          </span>
+        ) : null}
+      </button>
+      {tooltipPosition
+        ? createPortal(
+            <span className="model-name-tooltip" style={tooltipPosition} role="tooltip">
+              {props.displayName}
+            </span>,
+            document.body
+          )
+        : null}
+    </>
+  );
+}
+
+function AspectRatioOptionGrid(props: {
+  options: readonly AspectRatio[];
+  value: AspectRatio;
+  onSelect: (value: AspectRatio) => void;
+}) {
+  return (
+    <div className="config-choice-grid aspect-ratio-choice-grid">
+      {props.options.map((option) => {
+        const active = props.value === option;
+        return (
+          <button
+            key={option}
+            className={`config-choice-card config-panel-animate-item ${active ? "active" : ""}`}
+            onClick={() => props.onSelect(option)}
+          >
+            <AspectRatioGlyph ratio={option} />
+            <strong>{option}</strong>
+            {active ? (
+              <span className="config-selected-badge">
+                <Check size={16} />
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function AspectRatioGlyph({ ratio }: { ratio: AspectRatio }) {
+  const [width, height] = ratio.split(":").map(Number);
+  const numericRatio = width > 0 && height > 0 ? width / height : 1;
+  if (numericRatio > 1.2) return <RectangleHorizontal size={38} strokeWidth={1.8} />;
+  if (numericRatio < 0.82) return <RectangleVertical size={38} strokeWidth={1.8} />;
+  return <Square size={38} strokeWidth={1.8} />;
+}
+
+function OutputCountOptionGrid(props: {
+  value: number;
+  onSelect: (value: number) => void;
+}) {
+  return (
+    <div className="config-choice-grid output-count-choice-grid">
+      {[1, 2, 3, 4].map((option) => {
+        const active = props.value === option;
+        return (
+          <button
+            key={option}
+            className={`config-choice-card config-panel-animate-item ${active ? "active" : ""}`}
+            onClick={() => props.onSelect(option)}
+          >
+            <strong>{option}张</strong>
+            {active ? (
+              <span className="config-selected-badge">
+                <Check size={16} />
+              </span>
+            ) : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ManualAspectRatioInput(props: {
+  value: AspectRatio;
+  allowedOptions?: readonly AspectRatio[];
+  onCommit: (value: AspectRatio) => void;
+  onInvalid: (message: string) => void;
+}) {
+  const [draftValue, setDraftValue] = useState(props.value);
+
+  useEffect(() => {
+    setDraftValue(props.value);
+  }, [props.value]);
+
+  function commit() {
+    const normalized = normalizeAspectRatioInput(draftValue);
+    if (!normalized) {
+      props.onInvalid("比例格式不正确，请输入类似 1:1、4:5、16:9 的宽高比。");
+      setDraftValue(props.value);
+      return;
+    }
+    if (props.allowedOptions?.length && !props.allowedOptions.includes(normalized)) {
+      props.onInvalid(`当前模型仅支持：${props.allowedOptions.join("、")}`);
+      setDraftValue(props.value);
+      return;
+    }
+    props.onCommit(normalized);
+  }
+
+  return (
+    <label className="manual-config-input config-panel-animate-item">
+      <span>手动比例</span>
+      <input
+        value={draftValue}
+        placeholder="例如 16:9"
+        onChange={(event) => setDraftValue(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.currentTarget.blur();
+          }
+        }}
+      />
+    </label>
+  );
+}
+
+function ManualOutputCountInput(props: {
+  value: number;
+  onCommit: (value: number) => void;
+}) {
+  const [draftValue, setDraftValue] = useState(String(props.value));
+
+  useEffect(() => {
+    setDraftValue(String(props.value));
+  }, [props.value]);
+
+  function commit() {
+    const nextValue = clampOutputCount(Number.parseInt(draftValue, 10));
+    setDraftValue(String(nextValue));
+    props.onCommit(nextValue);
+  }
+
+  return (
+    <label className="manual-config-input config-panel-animate-item">
+      <span>手动张数</span>
+      <input
+        type="number"
+        min={1}
+        max={4}
+        value={draftValue}
+        onChange={(event) => setDraftValue(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.currentTarget.blur();
+          }
+        }}
+      />
+    </label>
+  );
+}
+
+function VideoDurationInput(props: {
+  value: number;
+  onChange: (value: number) => void;
+  onCommit: () => void;
+}) {
+  const [draftValue, setDraftValue] = useState(String(props.value));
+
+  useEffect(() => {
+    setDraftValue(String(props.value));
+  }, [props.value]);
+
+  function commit(value: string) {
+    const nextValue = clampVideoDuration(Number.parseInt(value, 10));
+    props.onChange(nextValue);
+    setDraftValue(String(nextValue));
+    props.onCommit();
+  }
+
+  return (
+    <div className="video-duration-control config-panel-animate-item">
+      <label className="duration-range-field">
+        <span>视频时长</span>
+        <input
+          type="range"
+          min={1}
+          max={15}
+          value={props.value}
+          onChange={(event) => {
+            const nextValue = clampVideoDuration(Number.parseInt(event.target.value, 10));
+            props.onChange(nextValue);
+            setDraftValue(String(nextValue));
+          }}
+          onPointerUp={() => props.onCommit()}
+          onKeyUp={(event) => {
+            if (event.key === "Enter") props.onCommit();
+          }}
+        />
+        <small>1-15 秒</small>
+      </label>
+      <label className="duration-number-field">
+        <span>手动时长</span>
+        <input
+          type="number"
+          min={1}
+          max={15}
+          value={draftValue}
+          onChange={(event) => {
+            const nextValue = event.target.value;
+            setDraftValue(nextValue);
+            const numericValue = Number.parseInt(nextValue, 10);
+            if (!Number.isNaN(numericValue)) {
+              props.onChange(clampVideoDuration(numericValue));
+            }
+          }}
+          onBlur={() => commit(draftValue)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.currentTarget.blur();
+            }
+          }}
+        />
+        <small>秒</small>
+      </label>
+    </div>
+  );
+}
+
 function VideoGenerationPage(props: {
   activeImage: ImportedImage | null;
   importedImages: ImportedImage[];
@@ -2012,28 +2898,48 @@ function VideoGenerationPage(props: {
   wallet: WalletSummary | null;
   supported: boolean;
   setupWarning: string;
-  workflowSteps: Array<{ label: string; description: string; done: boolean; active: boolean }>;
+  workflowSteps: WorkflowStepState[];
   progress: VideoProgress | null;
   job: VideoGenerationJob | null;
   layout: WorkspaceLayoutSize;
+  dragActive: boolean;
+  selectedPresetId: PresetId;
   isGenerating: boolean;
   isExporting: boolean;
   canGenerate: boolean;
+  galleryPaths: Set<string>;
   onSelectImage: () => void;
   onSelectImagePath: (path: string) => void;
+  onPreviewImage: (image: ImportedImage) => void;
+  onDeleteImage: (path: string) => void;
+  onClearImages: () => void;
+  onDragActiveChange: (active: boolean) => void;
+  onDropFiles: (files: FileList | null) => void;
   onModelSelect: (model: VideoModelMetadata) => void;
   onPromptChange: (prompt: string) => void;
+  onPresetSelect: (presetId: PresetId) => void;
   onAspectRatioChange: (ratio: AspectRatio) => void;
   onDurationChange: (value: number) => void;
+  onInvalidInput: (message: string) => void;
+  onOpenSettings: () => void;
   onLayoutChange: (layout: WorkspaceLayoutSize) => void;
   onGenerate: () => void;
   onCancel: () => void;
+  onAddToGallery: (result: VideoGenerationResult) => void;
+  onPreviewVideo: (result: VideoGenerationResult) => void;
   onExport: (videoPath: string) => void;
+  onExportAll: () => void;
+  onDelete: (result: VideoGenerationResult) => void;
 }) {
   const configured = props.keyStatus.find((item) => item.providerId === props.providerId)?.configured ?? false;
   const hasEnoughCredits = (props.wallet?.balanceCents ?? 0) >= props.estimatedCost;
-  const durationItems = props.durationOptions.map((item) => `${item}s`);
   const currentModelName = getVideoModelDisplayName(props.providerId, props.modelId);
+  const [openConfigPanel, setOpenConfigPanel] = useState<VideoConfigPanel | null>(null);
+
+  function toggleConfigPanel(panel: VideoConfigPanel) {
+    setOpenConfigPanel((current) => (current === panel ? null : panel));
+  }
+
   return (
     <main className="page-workspace video-workspace-page">
       <header className="page-header">
@@ -2053,11 +2959,13 @@ function VideoGenerationPage(props: {
               {uiText.cancel}
             </button>
           ) : null}
-          <button className="primary-button cost-action-button" onClick={props.onGenerate} disabled={!props.canGenerate}>
-            {props.isGenerating ? <Loader2 className="spin" size={18} /> : <Play size={18} />}
-            <span>{uiText.generateVideo}</span>
-            <small>{formatUsdCents(props.estimatedCost)}</small>
-          </button>
+          <GenerateActionButton
+            loading={props.isGenerating}
+            disabled={!props.canGenerate}
+            onClick={props.onGenerate}
+            label={uiText.generateVideo}
+            cost={formatUsdCents(props.estimatedCost)}
+          />
         </div>
       </header>
 
@@ -2068,14 +2976,47 @@ function VideoGenerationPage(props: {
         layout={props.layout}
         onLayoutChange={props.onLayoutChange}
       >
-        <section className="video-source-panel">
-          <div className="section-title"><span>{uiText.imageQueue}</span></div>
+        <section
+          className={`upload-surface video-upload-surface ${props.dragActive ? "drag-active" : ""} ${props.activeImage ? "has-image" : "is-empty"}`}
+          onDragEnter={(event) => {
+            event.preventDefault();
+            props.onDragActiveChange(true);
+          }}
+          onDragOver={(event) => {
+            event.preventDefault();
+            props.onDragActiveChange(true);
+          }}
+          onDragLeave={(event) => {
+            event.preventDefault();
+            props.onDragActiveChange(false);
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            props.onDragActiveChange(false);
+            props.onDropFiles(event.dataTransfer.files);
+          }}
+        >
           {props.activeImage ? (
-            <>
-              <button className="video-source-preview" onClick={props.onSelectImage}>
+            <div className="image-workbench">
+              <button className="image-preview-button" onClick={props.onSelectImage} title={uiText.clickImageToAdd}>
                 <img src={props.activeImage.previewDataUrl} alt="Product source" />
               </button>
-              <div className="image-queue compact-queue">
+              <div className="image-toolbar">
+                <span>{props.importedImages.length} {uiText.imagesCount}</span>
+                <button className="secondary-button" onClick={() => props.activeImage && props.onPreviewImage(props.activeImage)}>
+                  <ZoomIn size={16} />
+                  {uiText.previewCurrentImage}
+                </button>
+                <button className="secondary-button" onClick={props.onSelectImage}>
+                  <Upload size={17} />
+                  {uiText.addImages}
+                </button>
+                <button className="secondary-button" onClick={props.onClearImages}>
+                  <Trash2 size={16} />
+                  {uiText.clearImages}
+                </button>
+              </div>
+              <div className="image-queue">
                 {props.importedImages.map((image, index) => (
                   <button
                     key={image.sourceImagePath}
@@ -2084,14 +3025,30 @@ function VideoGenerationPage(props: {
                   >
                     <img src={image.previewDataUrl} alt={`Product ${index + 1}`} />
                     <span>{index + 1}</span>
+                    <i
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        props.onDeleteImage(image.sourceImagePath);
+                      }}
+                      title={uiText.deleteImage}
+                    >
+                      <X size={13} />
+                    </i>
                   </button>
                 ))}
               </div>
-            </>
+            </div>
           ) : (
-            <div className="empty-results">
-              {uiText.clickOrDragUpload}
-              <button className="secondary-button" onClick={props.onSelectImage}>
+            <div className="upload-empty">
+              <button className="upload-empty-visual" onClick={props.onSelectImage}>
+                <img src={workflowStudioIllustrationUrl} alt="" />
+                <div className="upload-empty-action">
+                  <ImagePlus size={28} />
+                </div>
+              </button>
+              <strong>{uiText.clickOrDragUpload}</strong>
+              <p>支持 JPG / PNG / WebP 格式，单张图片 ≤ 20MB</p>
+              <button className="primary-button" onClick={props.onSelectImage}>
                 <Upload size={17} />
                 {uiText.addImages}
               </button>
@@ -2100,59 +3057,89 @@ function VideoGenerationPage(props: {
         </section>
 
         <section className="video-control-panel">
-          <section className="control-group model-control preset-model-control video-model-control">
-            <div className="section-title">
-              <span>{uiText.model}</span>
-              <small>{currentModelName}</small>
+          <section className="quick-config-panel video-quick-config-panel">
+            <div className="quick-config-toolbar video-config-toolbar" aria-label="视频生成配置">
+              <button className={openConfigPanel === "model" ? "active" : ""} onClick={() => toggleConfigPanel("model")}>
+                <Box size={18} />
+                <span>模型</span>
+                <small>{currentModelName}</small>
+                {openConfigPanel === "model" ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </button>
+              <button className={openConfigPanel === "ratio" ? "active" : ""} onClick={() => toggleConfigPanel("ratio")}>
+                <MapPin size={18} />
+                <span>比例</span>
+                <small>{props.aspectRatio}</small>
+                {openConfigPanel === "ratio" ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </button>
+              <button className={openConfigPanel === "duration" ? "active" : ""} onClick={() => toggleConfigPanel("duration")}>
+                <Clock3 size={18} />
+                <span>自动时长</span>
+                <small>{props.durationSeconds}s</small>
+                {openConfigPanel === "duration" ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </button>
             </div>
-            <div className="model-picker compact-model-picker model-picker-unified">
-              <div className="model-option-list">
-                {props.modelOptions.map((option) => {
-                  const active = props.providerId === option.providerId && props.modelId === option.modelId;
-                  const configured = props.keyStatus.find((item) => item.providerId === option.providerId)?.configured;
-                  return (
-                    <button
-                      key={`${option.providerId}:${option.modelId}`}
-                      className={active ? "active" : ""}
-                      onClick={() => props.onModelSelect(option)}
-                    >
-                      <ProviderLogo providerId={option.providerId} compact />
-                      <span className="model-option-copy">
-                        <strong>{option.displayName}</strong>
-                      </span>
-                      {configured ? <Check size={15} /> : <KeyRound size={15} />}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </section>
-
-          <section className="embedded-output-panel video-output-panel">
-            <div className="section-title">
-              <span>{uiText.output}</span>
-            </div>
-            <div className="output-config-grid video-output-config-grid">
-              <div className="output-config-field output-ratio-field">
-                <span>{uiText.customAspectRatio}</span>
-                <OutputDropdown
-                  value={props.aspectRatio}
-                  options={props.aspectRatioOptions}
-                  customLabel="自定义比例"
-                  inputType="text"
-                  placeholder="16:9"
-                  onChange={props.onAspectRatioChange}
-                />
-              </div>
-              <div className="output-config-field output-duration-field">
-                <span>{uiText.videoDuration}</span>
-                <SegmentedControl
-                  items={durationItems}
-                  value={`${props.durationSeconds}s`}
-                  onChange={(value) => props.onDurationChange(Number.parseInt(value, 10))}
-                />
-              </div>
-            </div>
+            {openConfigPanel ? (
+              <AnimatedConfigPanel panelKey={`video-${openConfigPanel}`} className="video-config-panel">
+                {openConfigPanel === "model" ? (
+                  <>
+                    <ConfigPanelHeading
+                      title="模型"
+                      onCollapse={() => setOpenConfigPanel(null)}
+                      onOpenSettings={props.onOpenSettings}
+                    />
+                    <div className="config-model-picker video-config-model-picker">
+                      <div className="config-model-grid">
+                      {props.modelOptions.map((option) => {
+                        const active = props.providerId === option.providerId && props.modelId === option.modelId;
+                        const configured = props.keyStatus.find((item) => item.providerId === option.providerId)?.configured;
+                        return (
+                          <ModelOptionCard
+                            key={`${option.providerId}:${option.modelId}`}
+                            providerId={option.providerId}
+                            displayName={option.displayName}
+                            active={active}
+                            configured={Boolean(configured)}
+                            onClick={() => {
+                              props.onModelSelect(option);
+                              setOpenConfigPanel(null);
+                            }}
+                          />
+                        );
+                      })}
+                      </div>
+                    </div>
+                  </>
+                ) : null}
+                {openConfigPanel === "ratio" ? (
+                  <div className="config-selection-layout ratio-selection-layout">
+                    <AspectRatioOptionGrid
+                      options={props.aspectRatioOptions}
+                      value={props.aspectRatio}
+                      onSelect={(ratio) => {
+                        props.onAspectRatioChange(ratio);
+                        setOpenConfigPanel(null);
+                      }}
+                    />
+                    <ManualAspectRatioInput
+                      value={props.aspectRatio}
+                      allowedOptions={props.aspectRatioOptions}
+                      onCommit={(ratio) => {
+                        props.onAspectRatioChange(ratio);
+                        setOpenConfigPanel(null);
+                      }}
+                      onInvalid={props.onInvalidInput}
+                    />
+                  </div>
+                ) : null}
+                {openConfigPanel === "duration" ? (
+                  <VideoDurationInput
+                    value={props.durationSeconds}
+                    onChange={props.onDurationChange}
+                    onCommit={() => setOpenConfigPanel(null)}
+                  />
+                ) : null}
+              </AnimatedConfigPanel>
+            ) : null}
           </section>
 
           <section className="prompt-panel video-prompt-panel">
@@ -2169,33 +3156,85 @@ function VideoGenerationPage(props: {
               />
             </label>
           </section>
+          <section className="template-panel video-template-panel">
+            <div className="section-title">
+              <span>提示词模板</span>
+              <small>{getPresetName(props.selectedPresetId)}</small>
+            </div>
+            <div className="preset-list">
+              {productShotPresets.map((preset) => (
+                <button
+                  key={preset.id}
+                  className={`preset-item ${props.selectedPresetId === preset.id ? "selected" : ""}`}
+                  onClick={() => props.onPresetSelect(preset.id)}
+                  title={preset.prompt || preset.description}
+                >
+                  <div>
+                    <strong>{preset.name}</strong>
+                    <span>{preset.description}</span>
+                  </div>
+                  {props.selectedPresetId === preset.id ? <Check size={15} /> : null}
+                </button>
+              ))}
+            </div>
+          </section>
           {props.setupWarning ? <div className="auth-message">{props.setupWarning}</div> : null}
           {props.progress ? <div className="status-line"><span>{props.progress.message}</span></div> : null}
         </section>
 
-      <section className="result-band video-result-band">
-        <div className="section-title">
-          <span>{uiText.results}</span>
-          {props.job?.errors.length ? <span className="error-count">{props.job.errors.length} {uiText.errors}</span> : null}
+      <section className={`result-band video-result-band unified-result-band ${props.job?.errors.length ? "has-errors" : ""}`}>
+        <div className="section-title result-section-title">
+          <span>生成结果</span>
+          <div className="section-actions">
+            {props.job?.errors.length ? <span className="error-count">{props.job.errors.length} {uiText.errors}</span> : null}
+            <button
+              className="secondary-button compact-button result-export-all-button"
+              onClick={props.onExportAll}
+              disabled={!props.job?.results.length || props.isExporting}
+            >
+              {props.isExporting ? <Loader2 className="spin" size={14} /> : <Download size={14} />}
+              导出全部
+            </button>
+          </div>
         </div>
         {props.job?.errors.length ? <FailurePanel job={props.job} /> : null}
         {props.job?.results.length ? (
-          <div className="video-result-grid">
+          <ResultGridMotion signature={props.job.results.map((result) => result.videoPath).join("|")}>
             {props.job.results.map((result) => (
-              <figure key={result.videoPath} className="video-result-card">
-                <video src={window.productStudio.toFileUrl(result.videoPath)} controls />
-                <figcaption>
-                  <span>{result.durationSeconds}s / {result.resolution} / {result.aspectRatio}</span>
-                  <button className="secondary-button" onClick={() => props.onExport(result.videoPath)} disabled={props.isExporting}>
-                    {props.isExporting ? <Loader2 className="spin" size={15} /> : <Download size={15} />}
-                    {uiText.exportVideo}
+              <figure key={result.videoPath} className="result-tile video-result-card result-enter">
+                <button className="result-image-button video-preview-button" onClick={() => props.onPreviewVideo(result)}>
+                  <video src={window.productStudio.toFileUrl(result.videoPath)} muted preload="metadata" />
+                  <span className="video-preview-play">
+                    <Play size={16} />
+                  </span>
+                </button>
+                <figcaption className="result-actions-only">
+                  <button
+                    className={`icon-button ${props.galleryPaths.has(result.videoPath) ? "active" : ""}`}
+                    onClick={() => props.onAddToGallery(result)}
+                    title={props.galleryPaths.has(result.videoPath) ? "已在个人图库" : "加入个人图库"}
+                  >
+                    {props.galleryPaths.has(result.videoPath) ? <Check size={14} /> : <FolderPlus size={14} />}
+                  </button>
+                  <button
+                    className="icon-button"
+                    onClick={() => props.onExport(result.videoPath)}
+                    disabled={props.isExporting}
+                    title={uiText.exportVideo}
+                  >
+                    {props.isExporting ? <Loader2 className="spin" size={14} /> : <Download size={14} />}
+                  </button>
+                  <button className="icon-button danger" onClick={() => props.onDelete(result)} title="删除结果">
+                    <Trash2 size={14} />
                   </button>
                 </figcaption>
               </figure>
             ))}
-          </div>
+          </ResultGridMotion>
         ) : (
-          <div className="empty-results">{uiText.videoWaiting}</div>
+          <div className="result-grid">
+            <ResultEmptyState mediaType="video" />
+          </div>
         )}
       </section>
       </ResizableWorkspace>
@@ -2373,8 +3412,22 @@ function OutputDropdown(props: {
   );
 }
 
+function gateWorkflowSteps(steps: WorkflowStepState[]): WorkflowStepState[] {
+  let blocked = false;
+  return steps.map((step) => {
+    if (blocked) {
+      return { ...step, done: false, active: false };
+    }
+    const nextStep = { ...step, active: step.active && !step.done };
+    if (!nextStep.done) {
+      blocked = true;
+    }
+    return nextStep;
+  });
+}
+
 function WorkflowRibbon(props: {
-  steps: Array<{ label: string; description: string; done: boolean; active: boolean }>;
+  steps: WorkflowStepState[];
   busy: boolean;
 }) {
   return (
@@ -2428,6 +3481,16 @@ function getFailedPresetIds(job: ProductShotJob | null): PresetId[] {
 
 function clampOutputCount(value: number): number {
   return Math.min(4, Math.max(1, Math.floor(Number(value) || 1)));
+}
+
+function normalizeAspectRatioInput(value: string): AspectRatio | null {
+  const normalized = value.trim().replace(/：/g, ":").replace(/\s+/g, "");
+  const match = normalized.match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
+  if (!match) return null;
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null;
+  return `${match[1]}:${match[2]}`;
 }
 
 function AuthScreen(props: {
@@ -3645,6 +4708,117 @@ function ImagePreviewDialog(props: {
   );
 }
 
+function VideoPreviewDialog(props: {
+  video: PreviewVideo;
+  onClose: () => void;
+}) {
+  return (
+    <div className="modal-backdrop preview-backdrop">
+      <section className="video-preview-dialog" role="dialog" aria-modal="true" aria-label="视频预览">
+        <header>
+          <div>
+            <strong>{props.video.title}</strong>
+            {props.video.subtitle ? <span>{props.video.subtitle}</span> : null}
+          </div>
+          <button className="icon-button" onClick={props.onClose} title={uiText.close}>
+            <X size={18} />
+          </button>
+        </header>
+        <video src={props.video.src} controls autoPlay />
+        <footer>
+          <span>{props.video.fileName ?? getDisplayFileName(props.video.filePath, "video.mp4")}</span>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function DeleteResultDialog(props: {
+  target: ResultDeleteTarget;
+  onCancel: () => void;
+  onConfirm: (scope: ResultDeleteScope) => void;
+}) {
+  const [scope, setScope] = useState<ResultDeleteScope>("current");
+  const mediaLabel = props.target.mediaType === "video" ? "视频" : "图片";
+  const canDeleteHistory = Boolean(props.target.jobId);
+
+  return (
+    <div className="modal-backdrop">
+      <section className="delete-result-dialog" role="dialog" aria-modal="true" aria-label="删除结果确认">
+        <header>
+          <span className="delete-result-icon">
+            <CircleAlert size={28} />
+          </span>
+          <div>
+            <strong>删除这{props.target.mediaType === "video" ? "个" : "张"}{mediaLabel}？</strong>
+            <p>{props.target.title}</p>
+          </div>
+          <button className="icon-button delete-dialog-close" onClick={props.onCancel} title="关闭" aria-label="关闭">
+            <X size={22} />
+          </button>
+        </header>
+        <div className="delete-result-intro">
+          <p>删除后不会影响本地{mediaLabel}文件。</p>
+          <strong>请选择删除范围：</strong>
+        </div>
+        <div className="delete-scope-options" role="radiogroup" aria-label="删除范围">
+          <label
+            className={`delete-scope-option ${scope === "current" ? "active" : ""}`}
+          >
+            <input
+              type="radio"
+              name="delete-result-scope"
+              value="current"
+              checked={scope === "current"}
+              onChange={() => setScope("current")}
+            />
+            <span className="delete-scope-copy">
+              <strong>仅从当前结果移除</strong>
+              <small>{mediaLabel}不再显示在本次生成结果中。</small>
+            </span>
+            <ImageOff size={42} strokeWidth={1.6} />
+          </label>
+          <label
+            className={`delete-scope-option history-scope ${scope === "history" ? "active" : ""}`}
+            aria-disabled={!canDeleteHistory}
+          >
+            <input
+              type="radio"
+              name="delete-result-scope"
+              value="history"
+              checked={scope === "history"}
+              disabled={!canDeleteHistory}
+              onChange={() => setScope("history")}
+            />
+            <span className="delete-scope-copy">
+              <strong>同时从历史作品中删除</strong>
+              <small>{canDeleteHistory ? `${mediaLabel}会从关联的历史作品记录中移除。` : "当前结果没有关联的历史作品记录。"}</small>
+              {canDeleteHistory ? (
+                <em>
+                  <CircleAlert size={15} />
+                  此操作会修改历史作品记录，之后可能无法在历史中找回。
+                </em>
+              ) : null}
+            </span>
+            <span className="delete-history-icon">
+              <History size={36} strokeWidth={1.5} />
+              <Trash2 size={21} />
+            </span>
+          </label>
+        </div>
+        <footer>
+          <button className="secondary-button" onClick={props.onCancel}>
+            取消
+          </button>
+          <button className="primary-button danger-action" onClick={() => props.onConfirm(scope)}>
+            确认删除
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 function RangeControl(props: {
   label: string;
   value: number;
@@ -3723,6 +4897,16 @@ function createResultPreviewImage(result: ProductShotResult): PreviewImage {
   };
 }
 
+function createResultPreviewVideo(result: VideoGenerationResult): PreviewVideo {
+  return {
+    src: window.productStudio.toFileUrl(result.videoPath),
+    filePath: result.videoPath,
+    title: getVideoModelDisplayName(result.providerId, result.modelId),
+    subtitle: `${result.aspectRatio} / ${result.durationSeconds}s / ${result.resolution}`,
+    fileName: getDisplayFileName(result.videoPath, `${result.modelId}.mp4`)
+  };
+}
+
 function createGalleryPreviewImage(item: PersonalGalleryItem): PreviewImage {
   return {
     src: window.productStudio.toFileUrl(item.imagePath),
@@ -3733,6 +4917,22 @@ function createGalleryPreviewImage(item: PersonalGalleryItem): PreviewImage {
       : uiText.galleryPage,
     fileName: getDisplayFileName(item.imagePath, `${item.title}.png`)
   };
+}
+
+function createGalleryPreviewVideo(item: PersonalGalleryItem): PreviewVideo {
+  return {
+    src: window.productStudio.toFileUrl(item.imagePath),
+    filePath: item.imagePath,
+    title: item.title,
+    subtitle: item.modelId && item.providerId
+      ? `${uiText.usedModel}: ${getVideoModelDisplayName(item.providerId, item.modelId)}`
+      : uiText.galleryPage,
+    fileName: getDisplayFileName(item.imagePath, `${item.title}.mp4`)
+  };
+}
+
+function getGalleryMediaType(item: PersonalGalleryItem): MediaType {
+  return item.mediaType ?? "image";
 }
 
 function buildComparisonLibraryImages(
@@ -3761,14 +4961,16 @@ function buildComparisonLibraryImages(
       )
     )
     .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-  const gallery = galleryItems.map((item) =>
-    createComparisonLibraryImage(
-      createGalleryPreviewImage(item),
-      "gallery",
-      `gallery:${item.id}`,
-      item.createdAt
-    )
-  );
+  const gallery = galleryItems
+    .filter((item) => getGalleryMediaType(item) === "image")
+    .map((item) =>
+      createComparisonLibraryImage(
+        createGalleryPreviewImage(item),
+        "gallery",
+        `gallery:${item.id}`,
+        item.createdAt
+      )
+    );
   return [...current, ...historyImages, ...gallery];
 }
 
@@ -3802,6 +5004,8 @@ function PersonalGalleryPage(props: {
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
   const [dragOverItemId, setDragOverItemId] = useState<string | null>(null);
   const selectedItems = props.items.filter((item) => props.selectedIds.includes(item.id));
+  const selectedImageItems = selectedItems.filter((item) => getGalleryMediaType(item) === "image");
+  const allSelected = props.items.length > 0 && props.items.every((item) => props.selectedIds.includes(item.id));
 
   function toggleSelected(itemId: string) {
     props.onSelectedIdsChange(
@@ -3852,9 +5056,18 @@ function PersonalGalleryPage(props: {
       <header className="page-header gallery-page-header">
         <div>
           <h2>{uiText.galleryPage}</h2>
-          <p>{props.items.length} 张收藏 / 电商发布顺序</p>
+          <p>{props.items.length} 个收藏 / 电商发布顺序</p>
         </div>
         <div className="gallery-toolbar">
+          {props.items.length > 0 ? (
+            <button
+              className="secondary-button"
+              onClick={() => props.onSelectedIdsChange(allSelected ? [] : props.items.map((item) => item.id))}
+            >
+              {allSelected ? <X size={15} /> : <Check size={15} />}
+              {allSelected ? "取消全选" : "全选"}
+            </button>
+          ) : null}
           {props.selectedIds.length > 0 ? (
             <button className="secondary-button" onClick={() => props.onSelectedIdsChange([])}>
               <X size={15} />
@@ -3863,11 +5076,11 @@ function PersonalGalleryPage(props: {
           ) : null}
           <button
             className="primary-button"
-            disabled={selectedItems.length < 2}
-            onClick={() => props.onCompare(selectedItems)}
+            disabled={selectedImageItems.length < 2}
+            onClick={() => props.onCompare(selectedImageItems)}
           >
             <LayoutGrid size={16} />
-            对比 {selectedItems.length > 0 ? selectedItems.length : ""}
+            对比 {selectedImageItems.length > 0 ? selectedImageItems.length : ""}
           </button>
         </div>
       </header>
@@ -3876,12 +5089,13 @@ function PersonalGalleryPage(props: {
         <section className="gallery-empty">
           <Images size={32} />
           <h3>个人图库还是空的</h3>
-          <p>可从生成结果或个人中心的历史作品加入图片。</p>
+          <p>可从生成结果或个人中心的历史作品加入图片和视频。</p>
         </section>
       ) : (
         <section className="gallery-grid" aria-label={uiText.galleryPage}>
           {props.items.map((item, index) => {
             const selected = props.selectedIds.includes(item.id);
+            const mediaType = getGalleryMediaType(item);
             return (
               <article
                 key={item.id}
@@ -3914,14 +5128,27 @@ function PersonalGalleryPage(props: {
                   </label>
                 </div>
                 <button className="gallery-image-button" onClick={() => props.onPreview(item)}>
-                  <img src={window.productStudio.toFileUrl(item.imagePath)} alt={item.title} />
+                  {mediaType === "video" ? (
+                    <>
+                      <video src={window.productStudio.toFileUrl(item.imagePath)} muted preload="metadata" />
+                      <span className="gallery-video-badge">
+                        <Video size={14} />
+                      </span>
+                    </>
+                  ) : (
+                    <img src={window.productStudio.toFileUrl(item.imagePath)} alt={item.title} />
+                  )}
                 </button>
                 <div className="gallery-card-meta">
                   <strong title={item.title}>{item.title}</strong>
                   <span title={item.modelId}>
                     {item.modelId && item.providerId
-                      ? getModelDisplayName(item.providerId, item.modelId)
-                      : "已收藏图片"}
+                      ? mediaType === "video"
+                        ? getVideoModelDisplayName(item.providerId, item.modelId)
+                        : getModelDisplayName(item.providerId, item.modelId)
+                      : mediaType === "video"
+                        ? "已收藏视频"
+                        : "已收藏图片"}
                   </span>
                 </div>
                 <div className="gallery-card-actions">
@@ -3974,8 +5201,9 @@ function PersonalCenterPage(props: {
   onDeleteForever: (jobId: string) => void;
   onSelectImage: (job: ProductShotJob) => void;
   onSelectVideo: (job: VideoGenerationJob) => void;
-  galleryImagePaths: Set<string>;
-  onAddToGallery: (job: ProductShotJob) => void;
+  galleryPaths: Set<string>;
+  onAddToGallery: (job: StudioJob) => void;
+  onExport: (job: StudioJob) => void;
   onRecharged: (wallet: WalletSummary) => void;
 }) {
   const imageJobs = useMemo(() => props.jobs.filter(isImageJob), [props.jobs]);
@@ -4073,8 +5301,9 @@ function PersonalCenterPage(props: {
               emptyText={uiText.noJobs}
               onSelect={selectJob}
               onTrash={props.onTrash}
-              galleryImagePaths={props.galleryImagePaths}
+              galleryPaths={props.galleryPaths}
               onAddToGallery={props.onAddToGallery}
+              onExport={props.onExport}
             />
           ) : props.activeTab === "recharge" ? (
             <RechargeDialog
@@ -4108,8 +5337,9 @@ function PersonalHistoryList(props: {
   emptyText: string;
   onSelect: (job: StudioJob) => void;
   onTrash: (jobId: string) => void;
-  galleryImagePaths: Set<string>;
-  onAddToGallery: (job: ProductShotJob) => void;
+  galleryPaths: Set<string>;
+  onAddToGallery: (job: StudioJob) => void;
+  onExport: (job: StudioJob) => void;
 }) {
   return (
     <div className="history-dialog-list personal-history-list">
@@ -4119,7 +5349,7 @@ function PersonalHistoryList(props: {
         props.jobs.map((job) => (
           <article
             key={job.id}
-            className="history-dialog-item"
+            className={`history-dialog-item history-status-${job.status}`}
             onClick={() => props.onSelect(job)}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
@@ -4135,7 +5365,9 @@ function PersonalHistoryList(props: {
               <strong>{new Date(job.createdAt).toLocaleString()}</strong>
               <span>
                 {isVideoJob(job) ? uiText.videoPage : uiText.imagePage} / {getProviderDisplayName(job.request.providerId)} /{" "}
-                {getModelDisplayName(job.request.providerId, job.request.modelId)}
+                {isVideoJob(job)
+                  ? getVideoModelDisplayName(job.request.providerId, job.request.modelId)
+                  : getModelDisplayName(job.request.providerId, job.request.modelId)}
               </span>
               <small>
                 {jobStatusLabels[job.status]} / {job.results.length} {isVideoJob(job) ? uiText.videoPage : uiText.historyResults}
@@ -4143,29 +5375,43 @@ function PersonalHistoryList(props: {
               </small>
             </div>
             <span className="history-row-actions">
-              {isImageJob(job) && job.results.length > 0 ? (
-                <button
-                  className={job.results.every((result) => props.galleryImagePaths.has(result.imagePath)) ? "active" : ""}
-                  title={
-                    job.results.every((result) => props.galleryImagePaths.has(result.imagePath))
+              <button
+                className={
+                  job.results.length > 0 &&
+                  job.results.every((result) => props.galleryPaths.has("videoPath" in result ? result.videoPath : result.imagePath))
+                    ? "active"
+                    : ""
+                }
+                title={
+                  job.results.length === 0
+                    ? "该历史任务没有可加入图库的作品"
+                    : job.results.every((result) => props.galleryPaths.has("videoPath" in result ? result.videoPath : result.imagePath))
                       ? "已加入个人图库"
-                      : "将该任务图片加入个人图库"
-                  }
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    props.onAddToGallery(job);
-                  }}
-                >
-                  {job.results.every((result) => props.galleryImagePaths.has(result.imagePath)) ? (
-                    <Check size={16} />
-                  ) : (
-                    <FolderPlus size={16} />
-                  )}
-                </button>
-              ) : null}
-              <i>
-                <Check size={16} />
-              </i>
+                      : `将该任务${isVideoJob(job) ? "视频" : "图片"}加入个人图库`
+                }
+                disabled={job.results.length === 0}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  props.onAddToGallery(job);
+                }}
+              >
+                {job.results.length > 0 &&
+                job.results.every((result) => props.galleryPaths.has("videoPath" in result ? result.videoPath : result.imagePath)) ? (
+                  <Check size={16} />
+                ) : (
+                  <FolderPlus size={16} />
+                )}
+              </button>
+              <button
+                title={job.results.length > 0 ? `导出该历史任务的全部${isVideoJob(job) ? "视频" : "图片"}` : "该历史任务没有可导出的作品"}
+                disabled={job.results.length === 0}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  props.onExport(job);
+                }}
+              >
+                <Download size={16} />
+              </button>
               <i
                 title={uiText.moveToTrash}
                 onClick={(event) => {
@@ -4200,7 +5446,9 @@ function PersonalTrashList(props: {
               <strong>{new Date(job.createdAt).toLocaleString()}</strong>
               <span>
                 {isVideoJob(job) ? uiText.videoPage : uiText.imagePage} / {getProviderDisplayName(job.request.providerId)} /{" "}
-                {getModelDisplayName(job.request.providerId, job.request.modelId)}
+                {isVideoJob(job)
+                  ? getVideoModelDisplayName(job.request.providerId, job.request.modelId)
+                  : getModelDisplayName(job.request.providerId, job.request.modelId)}
               </span>
               <small>{jobStatusLabels[job.status]} / {job.results.length} {uiText.records}</small>
             </div>
@@ -4222,6 +5470,9 @@ function PersonalTrashList(props: {
 function PersonalJobThumb({ job }: { job: StudioJob }) {
   if (isImageJob(job) && job.results[0]) {
     return <img src={window.productStudio.toFileUrl(job.results[0].imagePath)} alt={job.id} />;
+  }
+  if (isVideoJob(job) && job.results[0]) {
+    return <video src={window.productStudio.toFileUrl(job.results[0].videoPath)} muted preload="metadata" />;
   }
   return (
     <span className="history-placeholder">
@@ -4433,7 +5684,7 @@ function getVideoModelOptions(providerId: ProviderId, currentModelId: string): V
 }
 
 function clampVideoDuration(value: number): number {
-  return Math.min(30, Math.max(1, Math.ceil(Number(value) || 5)));
+  return Math.min(15, Math.max(1, Math.ceil(Number(value) || 5)));
 }
 
 function getDefaultHiddenVideoResolution(model: VideoModelMetadata | null): VideoResolution {

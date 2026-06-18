@@ -61,6 +61,7 @@ function inferErrorCode(lowerMessage: string): string {
   if (
     lowerMessage.includes("has not activated the model") ||
     lowerMessage.includes("not activated the model") ||
+    lowerMessage.includes("does not exist or you do not have access") ||
     lowerMessage.includes("\u672a\u5f00\u901a\u6a21\u578b")
   ) {
     return "model_not_enabled";
@@ -89,6 +90,7 @@ function isNonRetryableProviderError(lowerMessage: string): boolean {
     lowerMessage.includes("403") ||
     lowerMessage.includes("has not activated the model") ||
     lowerMessage.includes("not activated the model") ||
+    lowerMessage.includes("does not exist or you do not have access") ||
     lowerMessage.includes("\u672a\u5f00\u901a\u6a21\u578b") ||
     isQuotaOrLimitError(lowerMessage)
   );
@@ -106,6 +108,18 @@ function localizeProviderMessage(providerId: ProviderId, message: string): strin
 
   if (providerId !== "volcano") {
     return cleaned;
+  }
+
+  const unavailableModel = cleaned.match(/model or endpoint\s+([A-Za-z0-9._:-]+)\s+does not exist or you do not have access/i)?.[1];
+  if (unavailableModel) {
+    const requestId = cleaned.match(/Request id:\s*([A-Za-z0-9-]+)/i)?.[1];
+    return [
+      `\u706b\u5c71\u65b9\u821f\u6682\u65f6\u65e0\u6cd5\u8bbf\u95ee\u6a21\u578b ${unavailableModel}\uff1a\u6a21\u578b ID \u53ef\u80fd\u5df2\u66f4\u65b0\uff0c\u6216\u5f53\u524d\u8d26\u53f7\u5c1a\u672a\u5f00\u901a\u8be5\u6a21\u578b/\u63a5\u5165\u70b9\u6743\u9650\u3002`,
+      "\u8bf7\u5148\u4f7f\u7528\u8f6f\u4ef6\u5185\u6700\u65b0\u6a21\u578b ID \u91cd\u8bd5\uff1b\u5982\u679c\u4ecd\u7136\u62a5\u9519\uff0c\u8bf7\u5230\u706b\u5c71\u65b9\u821f\u63a7\u5236\u53f0\u786e\u8ba4\u8be5\u6a21\u578b\u5df2\u5f00\u901a\u3002",
+      requestId ? `\u8bf7\u6c42 ID\uff1a${requestId}` : ""
+    ]
+      .filter(Boolean)
+      .join("");
   }
 
   const model = cleaned.match(/has not activated the model\s+([A-Za-z0-9._:-]+)/i)?.[1];

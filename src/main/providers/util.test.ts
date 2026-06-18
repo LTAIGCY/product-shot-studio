@@ -37,6 +37,22 @@ describe("provider utilities", () => {
     expect(error.message).toContain("\u8bf7\u6c42 ID");
   });
 
+  it("explains unavailable Volcano model or endpoint errors in Chinese", () => {
+    const error = normalizeProviderError({
+      providerId: "volcano",
+      error: new Error(
+        "The model or endpoint doubao-seedance-1-0-pro-fast-250610 does not exist or you do not have access to it. Request id: 0217816163707392856367a65b621c15f7d0cb2a0f35cc436b5df"
+      )
+    });
+
+    expect(error.code).toBe("model_not_enabled");
+    expect(error.retryable).toBe(false);
+    expect(error.message).toContain("doubao-seedance-1-0-pro-fast-250610");
+    expect(error.message).toContain("\u6a21\u578b ID \u53ef\u80fd\u5df2\u66f4\u65b0");
+    expect(error.message).toContain("\u706b\u5c71\u65b9\u821f\u63a7\u5236\u53f0");
+    expect(error.message).toContain("\u8bf7\u6c42 ID");
+  });
+
   it("explains invalid Volcano Seedream size errors in Chinese", () => {
     const error = normalizeProviderError({
       providerId: "volcano",

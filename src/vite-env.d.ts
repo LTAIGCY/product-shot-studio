@@ -4,6 +4,8 @@ import type {
   AddPersonalGalleryItemRequest,
   AuthCredentials,
   AuthSession,
+  DeleteHistoryResultRequest,
+  DeleteHistoryResultResponse,
   ExportRequest,
   ExportResponse,
   ExportVideosRequest,
@@ -65,6 +67,7 @@ declare global {
       trashHistoryJob(jobId: string): Promise<void>;
       restoreHistoryJob(jobId: string): Promise<void>;
       deleteHistoryJobForever(jobId: string): Promise<void>;
+      deleteHistoryResult(request: DeleteHistoryResultRequest): Promise<DeleteHistoryResultResponse>;
       listGalleryItems(): Promise<PersonalGalleryItem[]>;
       addGalleryItem(request: AddPersonalGalleryItemRequest): Promise<PersonalGalleryItem>;
       removeGalleryItem(itemId: string): Promise<void>;

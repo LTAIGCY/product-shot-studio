@@ -4,6 +4,8 @@ import type {
   AddPersonalGalleryItemRequest,
   AuthCredentials,
   AuthSession,
+  DeleteHistoryResultRequest,
+  DeleteHistoryResultResponse,
   ExportRequest,
   ExportVideosRequest,
   RechargeReceipt,
@@ -56,6 +58,8 @@ contextBridge.exposeInMainWorld("productStudio", {
   restoreHistoryJob: (jobId: string): Promise<void> => ipcRenderer.invoke(ipcChannels.historyRestore, jobId),
   deleteHistoryJobForever: (jobId: string): Promise<void> =>
     ipcRenderer.invoke(ipcChannels.historyDeleteForever, jobId),
+  deleteHistoryResult: (request: DeleteHistoryResultRequest): Promise<DeleteHistoryResultResponse> =>
+    ipcRenderer.invoke(ipcChannels.historyDeleteResult, request),
   listGalleryItems: (): Promise<PersonalGalleryItem[]> => ipcRenderer.invoke(ipcChannels.galleryList),
   addGalleryItem: (request: AddPersonalGalleryItemRequest): Promise<PersonalGalleryItem> =>
     ipcRenderer.invoke(ipcChannels.galleryAdd, request),
