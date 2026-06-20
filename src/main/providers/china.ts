@@ -964,7 +964,7 @@ function getDefaultVideoModel(providerId: ProviderId): string {
 }
 
 function normalizeVideoDuration(value: number): number {
-  return Math.min(30, Math.max(1, Math.ceil(Number(value) || 5)));
+  return Math.min(15, Math.max(1, Math.ceil(Number(value) || 5)));
 }
 
 function videoAspectRatioToAliyunSize(aspectRatio: string, resolution: VideoGenerationRequest["resolution"]): string {

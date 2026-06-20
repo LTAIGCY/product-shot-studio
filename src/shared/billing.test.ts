@@ -21,6 +21,7 @@ describe("billing estimates", () => {
   it("calculates video generation credits by duration and resolution", () => {
     expect(estimateVideoRequestCostCents({ durationSeconds: 5, resolution: "720p" })).toBe(500);
     expect(estimateVideoRequestCostCents({ durationSeconds: 5, resolution: "1080p" })).toBe(800);
+    expect(estimateVideoRequestCostCents({ durationSeconds: 30, resolution: "720p" })).toBe(1500);
   });
 });
 

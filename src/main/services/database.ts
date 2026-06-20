@@ -5,6 +5,8 @@ import { app } from "electron";
 import initSqlJs, { type Database, type SqlJsStatic } from "sql.js";
 import type {
   AddPersonalGalleryItemRequest,
+  DeleteHistoryResultRequest,
+  DeleteHistoryResultResponse,
   PersonalGalleryItem,
   StudioJob,
   WalletSummary,
@@ -88,6 +90,7 @@ export class AppDatabase {
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
         image_path TEXT NOT NULL,
+        media_type TEXT NOT NULL DEFAULT 'image',
         title TEXT NOT NULL,
         provider_id TEXT,
         model_id TEXT,
@@ -101,6 +104,7 @@ export class AppDatabase {
         ON personal_gallery(user_id, sort_order ASC, created_at ASC);
     `);
     await this.ensureColumn("product_jobs", "user_id", "TEXT");
+    await this.ensureColumn("personal_gallery", "media_type", "TEXT NOT NULL DEFAULT 'image'");
     this.exec("CREATE INDEX IF NOT EXISTS idx_product_jobs_user_created_at ON product_jobs(user_id, created_at DESC)");
     await this.persist();
   }
@@ -198,6 +202,41 @@ export class AppDatabase {
     await this.persist();
   }
 
+  async deleteJobResult(userId: string, request: DeleteHistoryResultRequest): Promise<DeleteHistoryResultResponse> {
+    const job = this.getJobForUser(request.jobId, userId);
+    if (!job) return { removed: false, movedToTrash: false };
+
+    const resultPath = request.resultPath.trim();
+    if (!resultPath) {
+      throw new Error("结果路径不能为空。");
+    }
+
+    const beforeCount = job.results.length;
+    const nextResults =
+      request.mediaType === "video" || job.mediaType === "video"
+        ? job.results.filter((result) => !("videoPath" in result) || result.videoPath !== resultPath)
+        : job.results.filter((result) => !("imagePath" in result) || result.imagePath !== resultPath);
+
+    if (nextResults.length === beforeCount) {
+      return { removed: false, movedToTrash: false, job };
+    }
+
+    const updatedJob = {
+      ...job,
+      results: nextResults,
+      updatedAt: new Date().toISOString()
+    } as StudioJob;
+
+    await this.upsertJob(updatedJob);
+
+    if (nextResults.length === 0) {
+      await this.trashJob(job.id, userId);
+      return { removed: true, movedToTrash: true, job: updatedJob };
+    }
+
+    return { removed: true, movedToTrash: false, job: updatedJob };
+  }
+
   async createUser(user: StoredUser): Promise<void> {
     this.requireDb().run(
       `
@@ -250,7 +289,7 @@ export class AppDatabase {
   listGalleryItems(userId: string): PersonalGalleryItem[] {
     const result = this.requireDb().exec(
       `
-      SELECT id, user_id, image_path, title, provider_id, model_id, job_id, preset_id, sort_order, created_at
+      SELECT id, user_id, image_path, media_type, title, provider_id, model_id, job_id, preset_id, sort_order, created_at
       FROM personal_gallery
       WHERE user_id = ?
       ORDER BY sort_order ASC, created_at ASC
@@ -277,6 +316,7 @@ export class AppDatabase {
       id: randomUUID(),
       userId,
       imagePath,
+      mediaType: request.mediaType ?? "image",
       title: request.title.trim() || path.basename(imagePath),
       providerId: request.providerId,
       modelId: request.modelId,
@@ -289,13 +329,14 @@ export class AppDatabase {
     this.requireDb().run(
       `
       INSERT INTO personal_gallery
-        (id, user_id, image_path, title, provider_id, model_id, job_id, preset_id, sort_order, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, user_id, image_path, media_type, title, provider_id, model_id, job_id, preset_id, sort_order, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       [
         item.id,
         item.userId,
         item.imagePath,
+        item.mediaType,
         item.title,
         item.providerId ?? null,
         item.modelId ?? null,
@@ -415,10 +456,16 @@ export class AppDatabase {
     return result.length > 0 && result[0].values.length > 0;
   }
 
+  private getJobForUser(jobId: string, userId: string): StudioJob | null {
+    const result = this.requireDb().exec("SELECT payload_json FROM product_jobs WHERE id = ? AND user_id = ?", [jobId, userId]);
+    if (result.length === 0 || result[0].values.length === 0) return null;
+    return normalizeStoredJob(JSON.parse(String(result[0].values[0][0])) as StudioJob);
+  }
+
   private getGalleryItemByPath(userId: string, imagePath: string): PersonalGalleryItem | null {
     const result = this.requireDb().exec(
       `
-      SELECT id, user_id, image_path, title, provider_id, model_id, job_id, preset_id, sort_order, created_at
+      SELECT id, user_id, image_path, media_type, title, provider_id, model_id, job_id, preset_id, sort_order, created_at
       FROM personal_gallery
       WHERE user_id = ? AND image_path = ?
       `,
@@ -467,13 +514,14 @@ function mapGalleryRow(row: unknown[]): PersonalGalleryItem {
     id: String(row[0]),
     userId: String(row[1]),
     imagePath: String(row[2]),
-    title: String(row[3]),
-    providerId: row[4] ? (String(row[4]) as PersonalGalleryItem["providerId"]) : undefined,
-    modelId: row[5] ? String(row[5]) : undefined,
-    jobId: row[6] ? String(row[6]) : undefined,
-    presetId: row[7] ? (String(row[7]) as PersonalGalleryItem["presetId"]) : undefined,
-    sortOrder: Number(row[8]),
-    createdAt: String(row[9])
+    mediaType: row[3] === "video" ? "video" : "image",
+    title: String(row[4]),
+    providerId: row[5] ? (String(row[5]) as PersonalGalleryItem["providerId"]) : undefined,
+    modelId: row[6] ? String(row[6]) : undefined,
+    jobId: row[7] ? String(row[7]) : undefined,
+    presetId: row[8] ? (String(row[8]) as PersonalGalleryItem["presetId"]) : undefined,
+    sortOrder: Number(row[9]),
+    createdAt: String(row[10])
   };
 }
 

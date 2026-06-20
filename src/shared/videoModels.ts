@@ -2,6 +2,8 @@ import type { ProviderId, VideoModelMetadata, VideoResolution } from "./types";
 
 const standardVideoRatios = ["16:9", "9:16", "1:1", "4:5"] as const;
 const standardVideoResolutions: VideoResolution[] = ["720p", "1080p"];
+const standardVideoDurations = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+const seedanceSourceUrl = "https://www.volcengine.com/docs/82379/1330310";
 
 export const videoModelCatalog: VideoModelMetadata[] = [
   {
@@ -9,7 +11,7 @@ export const videoModelCatalog: VideoModelMetadata[] = [
     modelId: "wanx2.1-i2v-turbo",
     displayName: "Wanx 2.1 I2V Turbo",
     aspectRatios: [...standardVideoRatios],
-    durations: [5],
+    durations: [...standardVideoDurations],
     resolutions: standardVideoResolutions,
     supportsImageToVideo: true,
     sourceUrl: "https://help.aliyun.com/zh/model-studio/wanx-video-generation"
@@ -19,7 +21,7 @@ export const videoModelCatalog: VideoModelMetadata[] = [
     modelId: "wanx2.1-i2v-plus",
     displayName: "Wanx 2.1 I2V Plus",
     aspectRatios: [...standardVideoRatios],
-    durations: [5],
+    durations: [...standardVideoDurations],
     resolutions: standardVideoResolutions,
     supportsImageToVideo: true,
     sourceUrl: "https://help.aliyun.com/zh/model-studio/wanx-video-generation"
@@ -29,7 +31,7 @@ export const videoModelCatalog: VideoModelMetadata[] = [
     modelId: "wan2.2-i2v-plus",
     displayName: "Wan 2.2 I2V Plus",
     aspectRatios: [...standardVideoRatios],
-    durations: [5],
+    durations: [...standardVideoDurations],
     resolutions: standardVideoResolutions,
     supportsImageToVideo: true,
     sourceUrl: "https://help.aliyun.com/zh/model-studio/wanx-video-generation"
@@ -39,7 +41,7 @@ export const videoModelCatalog: VideoModelMetadata[] = [
     modelId: "wan2.2-i2v-flash",
     displayName: "Wan 2.2 I2V Flash",
     aspectRatios: [...standardVideoRatios],
-    durations: [5],
+    durations: [...standardVideoDurations],
     resolutions: ["720p"],
     supportsImageToVideo: true,
     sourceUrl: "https://help.aliyun.com/zh/model-studio/wanx-video-generation"
@@ -49,7 +51,7 @@ export const videoModelCatalog: VideoModelMetadata[] = [
     modelId: "doubao-seedance-2-0-260128",
     displayName: "Doubao Seedance 2.0",
     aspectRatios: [...standardVideoRatios],
-    durations: [5, 10],
+    durations: [...standardVideoDurations],
     resolutions: standardVideoResolutions,
     supportsImageToVideo: true,
     sourceUrl: "https://www.volcengine.com/docs/82379/2298881"
@@ -59,17 +61,57 @@ export const videoModelCatalog: VideoModelMetadata[] = [
     modelId: "doubao-seedance-2-0-fast-260128",
     displayName: "Doubao Seedance 2.0 Fast",
     aspectRatios: [...standardVideoRatios],
-    durations: [5, 10],
+    durations: [...standardVideoDurations],
     resolutions: standardVideoResolutions,
     supportsImageToVideo: true,
     sourceUrl: "https://www.volcengine.com/docs/82379/2298881"
+  },
+  {
+    providerId: "volcano",
+    modelId: "doubao-seedance-1-0-pro-250528",
+    displayName: "Doubao Seedance 1.0 Pro",
+    aspectRatios: [...standardVideoRatios],
+    durations: [...standardVideoDurations],
+    resolutions: ["1080p"],
+    supportsImageToVideo: true,
+    sourceUrl: seedanceSourceUrl
+  },
+  {
+    providerId: "volcano",
+    modelId: "doubao-seedance-1-0-pro-fast-251015",
+    displayName: "Doubao Seedance 1.0 Pro Fast",
+    aspectRatios: [...standardVideoRatios],
+    durations: [...standardVideoDurations],
+    resolutions: ["1080p"],
+    supportsImageToVideo: true,
+    sourceUrl: seedanceSourceUrl
+  },
+  {
+    providerId: "volcano",
+    modelId: "doubao-seedance-1-0-lite-i2v-250428",
+    displayName: "Doubao Seedance 1.0 Lite I2V",
+    aspectRatios: [...standardVideoRatios],
+    durations: [...standardVideoDurations],
+    resolutions: ["720p"],
+    supportsImageToVideo: true,
+    sourceUrl: seedanceSourceUrl
+  },
+  {
+    providerId: "volcano",
+    modelId: "doubao-seedance-1-5-pro-251215",
+    displayName: "Doubao Seedance 1.5 Pro",
+    aspectRatios: [...standardVideoRatios],
+    durations: [...standardVideoDurations],
+    resolutions: ["1080p"],
+    supportsImageToVideo: true,
+    sourceUrl: seedanceSourceUrl
   },
   {
     providerId: "tencent",
     modelId: "tencent-vod-hunyuan-1.5",
     displayName: "Tencent VOD Hunyuan 1.5",
     aspectRatios: [...standardVideoRatios],
-    durations: [5],
+    durations: [...standardVideoDurations],
     resolutions: standardVideoResolutions,
     supportsImageToVideo: true,
     supportsAudio: true,
@@ -81,7 +123,7 @@ export const videoModelCatalog: VideoModelMetadata[] = [
     modelId: "tencent-vod-kling-3.0",
     displayName: "Tencent VOD Kling 3.0",
     aspectRatios: [...standardVideoRatios],
-    durations: [5, 10],
+    durations: [...standardVideoDurations],
     resolutions: standardVideoResolutions,
     supportsImageToVideo: true,
     sourceUrl: "https://cloud.tencent.com/document/product/266/126239",
@@ -92,7 +134,7 @@ export const videoModelCatalog: VideoModelMetadata[] = [
     modelId: "tencent-vod-vidu-2.0",
     displayName: "Tencent VOD Vidu 2.0",
     aspectRatios: [...standardVideoRatios],
-    durations: [4, 8],
+    durations: [...standardVideoDurations],
     resolutions: ["720p"],
     supportsImageToVideo: true,
     sourceUrl: "https://cloud.tencent.com/document/product/266/126239",
@@ -103,7 +145,7 @@ export const videoModelCatalog: VideoModelMetadata[] = [
     modelId: "tencent-vod-hailuo-2.3",
     displayName: "Tencent VOD Hailuo 2.3",
     aspectRatios: [...standardVideoRatios],
-    durations: [6, 10],
+    durations: [...standardVideoDurations],
     resolutions: ["720p"],
     supportsImageToVideo: true,
     sourceUrl: "https://cloud.tencent.com/document/product/266/126239",
@@ -114,7 +156,7 @@ export const videoModelCatalog: VideoModelMetadata[] = [
     modelId: "tencent-vod-mingmou-1.5",
     displayName: "Tencent VOD Mingmou 1.5",
     aspectRatios: [...standardVideoRatios],
-    durations: [5],
+    durations: [...standardVideoDurations],
     resolutions: ["720p"],
     supportsImageToVideo: true,
     sourceUrl: "https://cloud.tencent.com/document/product/266/126239",
@@ -125,7 +167,7 @@ export const videoModelCatalog: VideoModelMetadata[] = [
     modelId: "tencent-vod-pixverse-4.5",
     displayName: "Tencent VOD PixVerse 4.5",
     aspectRatios: [...standardVideoRatios],
-    durations: [5, 8],
+    durations: [...standardVideoDurations],
     resolutions: ["720p", "1080p"],
     supportsImageToVideo: true,
     sourceUrl: "https://cloud.tencent.com/document/product/266/126239",
@@ -151,15 +193,8 @@ export function getAllowedVideoAspectRatio(providerId: ProviderId, modelId: stri
   return model?.aspectRatios.includes(normalized) ? normalized : model?.aspectRatios[0] ?? "16:9";
 }
 
-export function getAllowedVideoDuration(providerId: ProviderId, modelId: string, value: number): number {
-  const model = getVideoModelMeta(providerId, modelId) ?? getVideoModelsForProvider(providerId)[0];
-  const requested = Math.min(30, Math.max(1, Math.ceil(Number(value) || 5)));
-  if (!model?.durations.length) return requested;
-  return model.durations.includes(requested)
-    ? requested
-    : model.durations.reduce((best, current) =>
-        Math.abs(current - requested) < Math.abs(best - requested) ? current : best
-      );
+export function getAllowedVideoDuration(_providerId: ProviderId, _modelId: string, value: number): number {
+  return Math.min(15, Math.max(1, Math.ceil(Number(value) || 5)));
 }
 
 export function getAllowedVideoResolution(

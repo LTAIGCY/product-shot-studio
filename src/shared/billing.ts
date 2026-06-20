@@ -117,7 +117,7 @@ export function estimateRequestCostCents(request: ProductShotRequest): number {
 }
 
 export function estimateVideoRequestCostCents(request: Pick<VideoGenerationRequest, "durationSeconds" | "resolution">): number {
-  const durationSeconds = Math.min(30, Math.max(1, Math.ceil(Number(request.durationSeconds) || 1)));
+  const durationSeconds = Math.min(15, Math.max(1, Math.ceil(Number(request.durationSeconds) || 1)));
   return durationSeconds * (videoResolutionPrices[request.resolution] ?? videoResolutionPrices["720p"]);
 }
 
