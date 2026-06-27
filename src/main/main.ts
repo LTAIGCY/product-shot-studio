@@ -1,9 +1,14 @@
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, Menu, net, protocol, shell } from "electron";
 import { ipcChannels } from "../shared/ipc";
 import type {
   AddPersonalGalleryItemRequest,
+  AuthSavedCredentialsInput,
+  CanvasAddRenderToGalleryRequest,
+  CanvasExportRequest,
+  CanvasSaveRequest,
   DeleteHistoryResultRequest,
   ExportRequest,
   ExportVideosRequest,
@@ -18,21 +23,25 @@ import { SecretStore } from "./services/secretStore";
 import { AppDatabase } from "./services/database";
 import { ImageService } from "./services/imageService";
 import { ExportService } from "./services/exportService";
+import { CanvasAssetService } from "./services/canvasAssetService";
 import { ProductShotService } from "./services/productShotService";
 import { VideoGenerationService } from "./services/videoGenerationService";
 import { AccountService } from "./services/accountService";
 import { BillingService } from "./services/billingService";
 import { BackendClient } from "./services/backendClient";
 import { LocalBackendService } from "./services/localBackendService";
+import { AuthCredentialStore } from "./services/authCredentialStore";
 
 let mainWindow: BrowserWindow | null = null;
 let secretStore: SecretStore;
 let database: AppDatabase;
 let imageService: ImageService;
 let exportService: ExportService;
+let canvasAssetService: CanvasAssetService;
 let productShotService: ProductShotService;
 let videoGenerationService: VideoGenerationService;
 let accountService: AccountService;
+let authCredentialStore: AuthCredentialStore;
 let billingService: BillingService;
 let backendClient: BackendClient;
 let localBackendService: LocalBackendService;
@@ -63,9 +72,11 @@ async function bootstrap(): Promise<void> {
   await localBackendService.start();
   backendClient = new BackendClient(userDataPath, localBackendService.getBaseUrl());
   accountService = new AccountService(backendClient);
+  authCredentialStore = new AuthCredentialStore(userDataPath);
   billingService = new BillingService(backendClient);
   imageService = new ImageService(userDataPath);
   exportService = new ExportService();
+  canvasAssetService = new CanvasAssetService(userDataPath);
   productShotService = new ProductShotService(userDataPath, secretStore, database, adapters);
   videoGenerationService = new VideoGenerationService(userDataPath, secretStore, database, adapters);
 
@@ -162,6 +173,11 @@ function registerIpc(): void {
   });
   ipcMain.handle(ipcChannels.authListAccounts, () => accountService.listAccounts());
   ipcMain.handle(ipcChannels.authDeleteAccount, (_event, userId: string) => accountService.deleteAccount(userId));
+  ipcMain.handle(ipcChannels.authGetSavedCredentials, () => authCredentialStore.get());
+  ipcMain.handle(ipcChannels.authSaveSavedCredentials, (_event, input: AuthSavedCredentialsInput) =>
+    authCredentialStore.save(input)
+  );
+  ipcMain.handle(ipcChannels.authClearSavedCredentials, () => authCredentialStore.clear());
   ipcMain.handle(ipcChannels.authSignUp, async (_event, credentials) => {
     const session = await accountService.signUp(credentials);
     startPresenceHeartbeat();
@@ -330,6 +346,40 @@ function registerIpc(): void {
   ipcMain.handle(ipcChannels.galleryReorder, (_event, itemIds: string[]) => {
     const session = accountService.requireSession();
     return database.reorderGalleryItems(session.userId, itemIds);
+  });
+  ipcMain.handle(ipcChannels.canvasListProjects, () => {
+    const session = accountService.requireSession();
+    return database.listCanvasProjects(session.userId);
+  });
+  ipcMain.handle(ipcChannels.canvasGetProject, (_event, projectId: string) => {
+    const session = accountService.requireSession();
+    return database.getCanvasProject(session.userId, projectId);
+  });
+  ipcMain.handle(ipcChannels.canvasSaveProject, async (_event, request: CanvasSaveRequest) => {
+    const session = accountService.requireSession();
+    const projectId = request.id || randomUUID();
+    const thumbnailPath = await canvasAssetService.saveThumbnail(projectId, request.thumbnailDataUrl);
+    return database.saveCanvasProject(session.userId, { ...request, id: projectId }, thumbnailPath);
+  });
+  ipcMain.handle(ipcChannels.canvasDeleteProject, (_event, projectId: string) => {
+    const session = accountService.requireSession();
+    return database.deleteCanvasProject(session.userId, projectId);
+  });
+  ipcMain.handle(ipcChannels.canvasDuplicateProject, (_event, projectId: string) => {
+    const session = accountService.requireSession();
+    return database.duplicateCanvasProject(session.userId, projectId);
+  });
+  ipcMain.handle(ipcChannels.canvasExportImage, (_event, request: CanvasExportRequest) =>
+    canvasAssetService.exportImage(request)
+  );
+  ipcMain.handle(ipcChannels.canvasAddRenderToGallery, async (_event, request: CanvasAddRenderToGalleryRequest) => {
+    const session = accountService.requireSession();
+    const imagePath = await canvasAssetService.saveRenderForGallery(request.title, request.dataUrl, request.format);
+    return database.addGalleryItem(session.userId, {
+      imagePath,
+      mediaType: "image",
+      title: request.title.trim() || "自由画布作品"
+    });
   });
   ipcMain.handle(ipcChannels.exportSelectDir, async () => {
     const result = await dialog.showOpenDialog({

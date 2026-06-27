@@ -14,15 +14,20 @@ import {
   ArrowLeft,
   ArrowRight,
   Box,
+  Brush,
   Check,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
   CircleAlert,
   Clock3,
+  Copy,
   CreditCard,
   Download,
   Edit3,
+  Eraser,
+  Eye,
+  EyeOff,
   FolderOpen,
   FolderPlus,
   GripVertical,
@@ -33,15 +38,22 @@ import {
   Images,
   Info,
   KeyRound,
+  Layers,
   LayoutGrid,
   Loader2,
   LogOut,
   MapPin,
   Megaphone,
+  MousePointer2,
+  Move,
+  Palette,
+  PenLine,
   Play,
+  Plus,
   QrCode,
   RectangleHorizontal,
   RectangleVertical,
+  Redo2,
   RotateCcw,
   Rows2,
   Save,
@@ -57,6 +69,19 @@ import {
   ZoomIn,
   ZoomOut
 } from "lucide-react";
+import Konva from "konva";
+import {
+  Arrow as KonvaArrow,
+  Circle as KonvaCircle,
+  Group,
+  Image as KonvaImage,
+  Layer,
+  Line,
+  Rect,
+  Stage,
+  Text as KonvaText,
+  Transformer
+} from "react-konva";
 import { gsap } from "gsap";
 import { useGSAP } from "@gsap/react";
 import { createPortal } from "react-dom";
@@ -70,12 +95,13 @@ import {
   getVideoModelsForProvider
 } from "@shared/videoModels";
 import { updateAnnouncements } from "@shared/updateAnnouncements";
-import loginStudioIllustrationUrl from "../assets/login-studio-illustration.png";
 import tutorialCurrentHistoryUrl from "../assets/tutorial-current-history.png";
 import tutorialCurrentModelConfigUrl from "../assets/tutorial-current-model-config.png";
 import tutorialCurrentPreviewUrl from "../assets/tutorial-current-preview.png";
 import tutorialCurrentUpdatesUrl from "../assets/tutorial-current-updates.png";
 import tutorialCurrentWorkspaceUrl from "../assets/tutorial-current-workspace.png";
+import authRobotMascotUrl from "../assets/auth-robot-mascot.png";
+import authStudioBackgroundUrl from "../assets/auth-studio-background-clean.png";
 import workflowStudioIllustrationUrl from "../assets/workflow-studio-illustration.png";
 import {
   estimateRequestCostCents,
@@ -89,11 +115,18 @@ import {
 import type {
   AuthSession,
   AspectRatio,
+  CanvasNode,
+  CanvasConnectorNode,
+  CanvasFreehandNode,
+  CanvasNoteNode,
+  CanvasProject,
+  CanvasProjectSummary,
+  CanvasShapeNode,
+  CanvasTextNode,
   ExportFormat,
   GenerateProgress,
   ImageQuality,
   ImportedImage,
-  LocalAccountSummary,
   MediaType,
   PersonalGalleryItem,
   PresetId,
@@ -113,6 +146,9 @@ import type {
 
 const aspectRatios: AspectRatio[] = ["1:1", "4:5", "16:9", "3:2"];
 const exportFormats: ExportFormat[] = ["png", "jpg", "webp"];
+const canvasExportFormats: ExportFormat[] = ["png", "jpg", "webp"];
+const defaultCanvasSize = { width: 1080, height: 1350 };
+const defaultCanvasBackground = "#fffaf3";
 type AppPage = "image" | "video" | "gallery" | "personal" | "updates" | "settings";
 type PersonalCenterTab = "overview" | "history" | "recharge" | "transactions" | "trash";
 type StatusTone = "normal" | "success" | "warn" | "error";
@@ -141,6 +177,15 @@ type PreviewVideo = {
   subtitle?: string;
   fileName?: string;
 };
+type GalleryViewMode = "works" | "canvas";
+type CanvasTool = "select" | "pan" | "text" | "note" | "rect" | "circle" | "line" | "arrow" | "connector" | "brush" | "eraser" | "aiTask";
+type CanvasSnapshot = Pick<CanvasProject, "background" | "nodes" | "width" | "height">;
+type CanvasDraftProject = CanvasProject & {
+  draft?: boolean;
+};
+type CanvasNodeChange = Partial<CanvasNode> & { id: string };
+type CanvasSelectionBox = { x: number; y: number; width: number; height: number };
+type CanvasContextMenuState = { x: number; y: number; canvasX: number; canvasY: number } | null;
 type ResultDeleteTarget = {
   mediaType: MediaType;
   resultPath: string;
@@ -2018,6 +2063,9 @@ export function App() {
             onCompare={openGalleryComparison}
             onReorder={(items) => void reorderGalleryItems(items)}
             onRemove={(itemId) => void removeGalleryItem(itemId)}
+            onGalleryItemAdded={(item) => {
+              setGalleryItems((current) => [...current.filter((entry) => entry.id !== item.id), item].sort((a, b) => a.sortOrder - b.sortOrder));
+            }}
           />
         ) : activePage === "personal" ? (
           <PersonalCenterPage
@@ -3493,6 +3541,95 @@ function normalizeAspectRatioInput(value: string): AspectRatio | null {
   return `${match[1]}:${match[2]}`;
 }
 
+function clampMascotMotion(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+type RobotEyeOffset = {
+  x: number;
+  y: number;
+};
+
+function AuthRobotMascot(props: {
+  isTyping: boolean;
+  showPassword: boolean;
+  passwordLength: number;
+}) {
+  const mascotRef = useRef<HTMLDivElement>(null);
+  const frameRef = useRef<number | null>(null);
+  const latestPointerRef = useRef({ x: 0, y: 0 });
+  const [eyeOffset, setEyeOffset] = useState<RobotEyeOffset>({ x: 0, y: 0 });
+  const reducedMotion = prefersReducedMotion();
+  const hasPassword = props.passwordLength > 0;
+  const hidingPassword = hasPassword && !props.showPassword;
+  const peekingPassword = hasPassword && props.showPassword;
+
+  useEffect(() => {
+    if (reducedMotion) return;
+
+    function updateEyeOffset() {
+      frameRef.current = null;
+      const rect = mascotRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      const centerX = rect.left + rect.width * 0.52;
+      const centerY = rect.top + rect.height * 0.44;
+      const deltaX = latestPointerRef.current.x - centerX;
+      const deltaY = latestPointerRef.current.y - centerY;
+
+      setEyeOffset({
+        x: clampMascotMotion(deltaX / 54, -4, 4),
+        y: clampMascotMotion(deltaY / 68, -3, 3)
+      });
+    }
+
+    function handleMouseMove(event: globalThis.MouseEvent) {
+      latestPointerRef.current = { x: event.clientX, y: event.clientY };
+      if (frameRef.current !== null) return;
+      frameRef.current = window.requestAnimationFrame(updateEyeOffset);
+    }
+
+    window.addEventListener("mousemove", handleMouseMove);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      if (frameRef.current !== null) {
+        window.cancelAnimationFrame(frameRef.current);
+      }
+    };
+  }, [reducedMotion]);
+
+  let directedEyeOffset = eyeOffset;
+  if (reducedMotion) {
+    directedEyeOffset = { x: 0, y: 0 };
+  } else if (peekingPassword) {
+    directedEyeOffset = { x: 4, y: -3 };
+  } else if (hidingPassword) {
+    directedEyeOffset = { x: -4, y: 3 };
+  } else if (props.isTyping) {
+    directedEyeOffset = { x: -3, y: -2 };
+  }
+
+  return (
+    <div
+      ref={mascotRef}
+      className={`auth-robot-mascot ${props.isTyping ? "is-typing" : ""} ${hidingPassword ? "is-hiding-password" : ""} ${peekingPassword ? "is-peeking-password" : ""}`}
+      aria-hidden="true"
+    >
+      <img src={authRobotMascotUrl} alt="" />
+      <div className="auth-robot-face-mask">
+        <span
+          className="auth-robot-eye left"
+          style={{ transform: `translate(${directedEyeOffset.x}px, ${directedEyeOffset.y}px)` }}
+        />
+        <span
+          className="auth-robot-eye right"
+          style={{ transform: `translate(${directedEyeOffset.x}px, ${directedEyeOffset.y}px)` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function AuthScreen(props: {
   rememberedSession: AuthSession | null;
   onAuthenticate: (mode: "login" | "signup", username: string, password: string) => Promise<void>;
@@ -3501,19 +3638,23 @@ function AuthScreen(props: {
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [accounts, setAccounts] = useState<LocalAccountSummary[]>([]);
-  const [hiddenRememberedUserId, setHiddenRememberedUserId] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberPassword, setRememberPassword] = useState(false);
+  const [isAuthTyping, setIsAuthTyping] = useState(false);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const rememberedSession =
-    props.rememberedSession?.userId === hiddenRememberedUserId ? null : props.rememberedSession;
 
   useEffect(() => {
-    void loadAccounts();
+    void loadSavedAuthCredentials();
   }, []);
 
-  async function loadAccounts() {
-    setAccounts(await window.productStudio.listAccounts());
+  async function loadSavedAuthCredentials() {
+    const savedCredentials = await window.productStudio.getSavedAuthCredentials();
+    if (!savedCredentials) return;
+    setMode("login");
+    setUsername(savedCredentials.username);
+    setPassword(savedCredentials.password ?? "");
+    setRememberPassword(savedCredentials.rememberPassword);
   }
 
   async function submit() {
@@ -3521,7 +3662,20 @@ function AuthScreen(props: {
     setMessage("");
     try {
       await props.onAuthenticate(mode, username, password);
-      await loadAccounts();
+      if (rememberPassword) {
+        await window.productStudio.saveAuthCredentials({
+          username,
+          password,
+          rememberPassword: true
+        });
+      } else if (username.trim()) {
+        await window.productStudio.saveAuthCredentials({
+          username,
+          rememberPassword: false
+        });
+      } else {
+        await window.productStudio.clearSavedAuthCredentials();
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : uiText.generationFailed);
     } finally {
@@ -3529,112 +3683,165 @@ function AuthScreen(props: {
     }
   }
 
-  async function removeAccount(userId: string) {
-    await window.productStudio.deleteAccount(userId);
-    await loadAccounts();
-    setMessage(uiText.accountDeleted);
-    if (props.rememberedSession?.userId === userId) {
-      setHiddenRememberedUserId(userId);
-    }
+  function updateSideFeatureTilt(event: MouseEvent<HTMLDivElement>) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const offsetX = (event.clientX - rect.left) / rect.width - 0.5;
+    const offsetY = (event.clientY - rect.top) / rect.height - 0.5;
+    event.currentTarget.style.setProperty("--tilt-x", `${clampMascotMotion(-offsetY * 8, -4, 4)}deg`);
+    event.currentTarget.style.setProperty("--tilt-y", `${clampMascotMotion(offsetX * 10, -5, 5)}deg`);
+    event.currentTarget.style.setProperty("--glow-x", `${event.clientX - rect.left}px`);
+    event.currentTarget.style.setProperty("--glow-y", `${event.clientY - rect.top}px`);
   }
 
-  function selectAccount(account: LocalAccountSummary) {
-    setMode("login");
-    setUsername(account.accountId);
-    setPassword("");
-    setMessage("");
+  function resetSideFeatureTilt(event: MouseEvent<HTMLDivElement>) {
+    event.currentTarget.style.setProperty("--tilt-x", "0deg");
+    event.currentTarget.style.setProperty("--tilt-y", "0deg");
+    event.currentTarget.style.setProperty("--glow-x", "50%");
+    event.currentTarget.style.setProperty("--glow-y", "50%");
   }
+
+  const sideFeatures = [
+    {
+      title: "AI Enhance",
+      description: "Smart image enhancement",
+      icon: <ImagePlus size={31} />
+    },
+    {
+      title: "Pro Tools",
+      description: "Advanced editing features",
+      icon: <Settings size={31} />
+    },
+    {
+      title: "Creative Filters",
+      description: "Unique styles and effects",
+      icon: <LayoutGrid size={31} />
+    }
+  ];
 
   return (
     <div className="auth-shell">
-      <div className="auth-panel">
-        <div className="auth-hero-card">
-          <div className="brand-block">
-            <div className="brand-mark">
-              <Sparkles size={18} />
-            </div>
-            <div>
-              <h1>Product Shot Studio</h1>
-              <p>{uiText.tagline}</p>
-            </div>
-          </div>
-          <h2>{uiText.loginHeroTitle}</h2>
-          <p>{uiText.loginHeroSubtitle}</p>
+      <aside className="auth-side photo-auth-side">
+        <img className="auth-side-background" src={authStudioBackgroundUrl} alt="" />
+        <div className="auth-side-copy">
+          <span>Create</span>
+          <h2>Stunning Photos<br />Effortlessly</h2>
+          <i />
+          <p>Professional-grade editing tools<br />for every creator.</p>
         </div>
-        {rememberedSession ? (
-          <div className="remembered-account">
-            <div>
-              <span>{uiText.rememberedAccount}</span>
-              <strong>{rememberedSession.username}</strong>
-              <small>{uiText.accountId}：{rememberedSession.accountId}</small>
-            </div>
-            <button className="primary-button" onClick={props.onResume}>
-              <User size={18} />
-              {uiText.continueLogin}
-            </button>
-          </div>
-        ) : null}
-        <div className="local-account-list">
-          <div className="section-title">
-            <span>{uiText.localAccounts}</span>
-            <small>{accounts.length} {uiText.records}</small>
-          </div>
-          {accounts.length === 0 ? (
-            <div className="empty-small">{uiText.emptyAccounts}</div>
-          ) : (
-            accounts.map((account) => (
-              <div key={account.userId} className="local-account-item">
-                <button onClick={() => selectAccount(account)} title={uiText.selectAccount}>
-                  <User size={16} />
-                  <span>
-                    <strong>{account.username}</strong>
-                    <small>{uiText.accountId}：{account.accountId}</small>
-                    <small>{uiText.accountCreatedAt} {new Date(account.createdAt).toLocaleDateString()}</small>
-                  </span>
-                </button>
-                <button className="icon-button danger" onClick={() => void removeAccount(account.userId)} title={uiText.deleteAccount}>
-                  <Trash2 size={15} />
-                </button>
+        <div className="auth-side-feature-stack" aria-label="Product Shot Studio features">
+          {sideFeatures.map((feature) => (
+            <div
+              className="auth-side-feature-card"
+              key={feature.title}
+              onMouseMove={updateSideFeatureTilt}
+              onMouseLeave={resetSideFeatureTilt}
+            >
+              <div className="auth-side-feature-icon">{feature.icon}</div>
+              <div>
+                <strong>{feature.title}</strong>
+                <span>{feature.description}</span>
               </div>
-            ))
-          )}
+            </div>
+          ))}
         </div>
-        <div className="auth-tabs">
-          <button className={mode === "login" ? "active" : ""} onClick={() => setMode("login")}>
-            {uiText.login}
-          </button>
-          <button className={mode === "signup" ? "active" : ""} onClick={() => setMode("signup")}>
-            {uiText.signUp}
-          </button>
-        </div>
-        <label>
-          <span>{mode === "login" ? uiText.loginAccount : uiText.displayName}</span>
-          <input value={username} onChange={(event) => setUsername(event.target.value)} />
-        </label>
-        <label>
-          <span>{uiText.password}</span>
-          <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
-        </label>
-        <button className="primary-button" onClick={() => void submit()} disabled={busy}>
-          {busy ? <Loader2 className="spin" size={18} /> : <User size={18} />}
-          {mode === "login" ? uiText.login : uiText.signUp}
-        </button>
-        <p className="auth-footnote">
-          {uiText.localAccountOnly}
-          {mode === "signup" ? ` ${uiText.duplicateNameHint}` : ""}
-        </p>
-        {message ? <div className="auth-message">{message}</div> : null}
-      </div>
-      <div className="auth-side">
-        <div className="login-illustration-panel">
-          <img src={loginStudioIllustrationUrl} alt="" />
-          <div>
-            <strong>{uiText.loginHeroTitle}</strong>
-            <span>{uiText.loginHeroSubtitle}</span>
+      </aside>
+      <section className="auth-panel">
+        <div className="auth-panel-inner">
+          <header className="auth-top-frame">
+            <div className="auth-brand-lockup">
+              <div className="brand-mark">
+                <Sparkles size={18} />
+              </div>
+              <div>
+                <strong>Product Shot Studio</strong>
+                <span>{uiText.tagline}</span>
+              </div>
+            </div>
+            <AuthRobotMascot isTyping={isAuthTyping} showPassword={showPassword} passwordLength={password.length} />
+          </header>
+
+          <div className="auth-title-block">
+            <span>{uiText.accountLogin}</span>
+            <h1>{mode === "login" ? "欢迎回来" : "创建新账号"}<Sparkles size={26} /></h1>
+            <p>{mode === "login" ? "继续创建专业商拍作品。" : "创建本地账号后即可继续使用商拍工作台。"}</p>
           </div>
+
+          <div className="auth-form-card">
+            <div className="auth-tabs">
+              <button className={mode === "login" ? "active" : ""} type="button" onClick={() => setMode("login")}>
+                {uiText.login}
+              </button>
+              <button className={mode === "signup" ? "active" : ""} type="button" onClick={() => setMode("signup")}>
+                {uiText.signUp}
+              </button>
+            </div>
+            <form
+              className="auth-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submit();
+              }}
+            >
+              <label>
+                <span>{mode === "login" ? uiText.loginAccount : uiText.displayName}</span>
+                <input
+                  value={username}
+                  placeholder={mode === "login" ? "输入账号 ID 或账号名" : "输入账号名"}
+                  onFocus={() => setIsAuthTyping(true)}
+                  onBlur={() => setIsAuthTyping(false)}
+                  onChange={(event) => setUsername(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>{uiText.password}</span>
+                <div className="password-field">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    placeholder="输入密码"
+                    onFocus={() => setIsAuthTyping(true)}
+                    onBlur={() => setIsAuthTyping(false)}
+                    onChange={(event) => setPassword(event.target.value)}
+                  />
+                  <button
+                    className="password-toggle"
+                    type="button"
+                    onClick={() => setShowPassword((current) => !current)}
+                    title={showPassword ? "隐藏密码" : "显示密码"}
+                  >
+                    {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+                  </button>
+                </div>
+              </label>
+              <label className="auth-remember-password">
+                <input
+                  checked={rememberPassword}
+                  type="checkbox"
+                  onChange={(event) => setRememberPassword(event.target.checked)}
+                />
+                <span>保留密码，下次自动填入</span>
+              </label>
+              <button className="primary-button" type="submit" disabled={busy}>
+                {busy ? <Loader2 className="spin" size={18} /> : <User size={18} />}
+                {mode === "login" ? uiText.login : uiText.signUp}
+              </button>
+            </form>
+            <p className="auth-footnote">
+              {uiText.localAccountOnly}
+              {mode === "signup" ? ` ${uiText.duplicateNameHint}` : ""}
+            </p>
+            {message ? <div className="auth-message">{message}</div> : null}
+          </div>
+
+          <div className="auth-feature-strip" aria-hidden="true">
+            <span><ImagePlus size={20} /> 专业商拍质量</span>
+            <span><Sparkles size={20} /> AI 增强工作流</span>
+            <span><KeyRound size={20} /> 本地账号安全</span>
+          </div>
+
+          <footer className="auth-footer">© Product Shot Studio · Local account workspace</footer>
         </div>
-        <PriceTable compact={false} />
-      </div>
+      </section>
     </div>
   );
 }
@@ -5000,7 +5207,9 @@ function PersonalGalleryPage(props: {
   onCompare: (items: PersonalGalleryItem[]) => void;
   onReorder: (items: PersonalGalleryItem[]) => void;
   onRemove: (itemId: string) => void;
+  onGalleryItemAdded: (item: PersonalGalleryItem) => void;
 }) {
+  const [viewMode, setViewMode] = useState<GalleryViewMode>("works");
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
   const [dragOverItemId, setDragOverItemId] = useState<string | null>(null);
   const selectedItems = props.items.filter((item) => props.selectedIds.includes(item.id));
@@ -5056,10 +5265,28 @@ function PersonalGalleryPage(props: {
       <header className="page-header gallery-page-header">
         <div>
           <h2>{uiText.galleryPage}</h2>
-          <p>{props.items.length} 个收藏 / 电商发布顺序</p>
+          <p>{viewMode === "works" ? `${props.items.length} 个收藏 / 电商发布顺序` : "自由画布 / 本地项目与图库素材"}</p>
         </div>
         <div className="gallery-toolbar">
-          {props.items.length > 0 ? (
+          <div className="gallery-mode-switch" role="tablist" aria-label="个人图库视图">
+            <button
+              className={viewMode === "works" ? "active" : ""}
+              onClick={() => setViewMode("works")}
+              type="button"
+            >
+              <Images size={15} />
+              图库作品
+            </button>
+            <button
+              className={viewMode === "canvas" ? "active" : ""}
+              onClick={() => setViewMode("canvas")}
+              type="button"
+            >
+              <PenLine size={15} />
+              自由画布
+            </button>
+          </div>
+          {viewMode === "works" && props.items.length > 0 ? (
             <button
               className="secondary-button"
               onClick={() => props.onSelectedIdsChange(allSelected ? [] : props.items.map((item) => item.id))}
@@ -5068,24 +5295,32 @@ function PersonalGalleryPage(props: {
               {allSelected ? "取消全选" : "全选"}
             </button>
           ) : null}
-          {props.selectedIds.length > 0 ? (
+          {viewMode === "works" && props.selectedIds.length > 0 ? (
             <button className="secondary-button" onClick={() => props.onSelectedIdsChange([])}>
               <X size={15} />
               清除选择
             </button>
           ) : null}
-          <button
-            className="primary-button"
-            disabled={selectedImageItems.length < 2}
-            onClick={() => props.onCompare(selectedImageItems)}
-          >
-            <LayoutGrid size={16} />
-            对比 {selectedImageItems.length > 0 ? selectedImageItems.length : ""}
-          </button>
+          {viewMode === "works" ? (
+            <button
+              className="primary-button"
+              disabled={selectedImageItems.length < 2}
+              onClick={() => props.onCompare(selectedImageItems)}
+            >
+              <LayoutGrid size={16} />
+              对比 {selectedImageItems.length > 0 ? selectedImageItems.length : ""}
+            </button>
+          ) : null}
         </div>
       </header>
 
-      {props.items.length === 0 ? (
+      {viewMode === "canvas" ? (
+        <FreeCanvasWorkspace
+          galleryItems={props.items}
+          onGalleryItemAdded={props.onGalleryItemAdded}
+          onExit={() => setViewMode("works")}
+        />
+      ) : props.items.length === 0 ? (
         <section className="gallery-empty">
           <Images size={32} />
           <h3>个人图库还是空的</h3>
@@ -5183,6 +5418,2069 @@ function PersonalGalleryPage(props: {
       )}
     </main>
   );
+}
+
+function FreeCanvasWorkspace(props: {
+  galleryItems: PersonalGalleryItem[];
+  onGalleryItemAdded: (item: PersonalGalleryItem) => void;
+  onExit: () => void;
+}) {
+  const visibleStageRef = useRef<Konva.Stage>(null);
+  const exportStageRef = useRef<Konva.Stage>(null);
+  const transformerRef = useRef<Konva.Transformer>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const dragSnapshotRef = useRef<Record<string, { x: number; y: number }> | null>(null);
+  const clipboardRef = useRef<CanvasNode[]>([]);
+  const selectionStartRef = useRef<{ x: number; y: number } | null>(null);
+  const [stageSize, setStageSize] = useState({ width: 900, height: 620 });
+  const [projects, setProjects] = useState<CanvasProjectSummary[]>([]);
+  const [activeProject, setActiveProject] = useState<CanvasDraftProject>(() => createDraftCanvasProject());
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [tool, setTool] = useState<CanvasTool>("select");
+  const [zoom, setZoom] = useState(0.55);
+  const [pan, setPan] = useState({ x: 160, y: 60 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [lastPanPoint, setLastPanPoint] = useState<{ x: number; y: number } | null>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [undoStack, setUndoStack] = useState<CanvasSnapshot[]>([]);
+  const [redoStack, setRedoStack] = useState<CanvasSnapshot[]>([]);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [exportFormat, setExportFormat] = useState<ExportFormat>("png");
+  const [brushColor, setBrushColor] = useState("#8f5728");
+  const [brushSize, setBrushSize] = useState(10);
+  const [snapToGrid, setSnapToGrid] = useState(true);
+  const [showGrid, setShowGrid] = useState(true);
+  const [selectionBox, setSelectionBox] = useState<CanvasSelectionBox | null>(null);
+  const [contextMenu, setContextMenu] = useState<CanvasContextMenuState>(null);
+  const [isSpacePanning, setIsSpacePanning] = useState(false);
+  const [leftPanelOpen, setLeftPanelOpen] = useState(true);
+  const [rightPanelOpen, setRightPanelOpen] = useState(true);
+  const [aiPrompt, setAiPrompt] = useState("商品主图，柔和棚拍光线，高级质感");
+  const canvasApiReady =
+    typeof window.productStudio.listCanvasProjects === "function" &&
+    typeof window.productStudio.saveCanvasProject === "function" &&
+    typeof window.productStudio.exportCanvasImage === "function";
+  const imageGalleryItems = props.galleryItems.filter((item) => getGalleryMediaType(item) === "image");
+  const selectedNodes = activeProject.nodes.filter((node) => selectedIds.includes(node.id));
+  const singleSelectedNode = selectedNodes.length === 1 ? selectedNodes[0] : null;
+
+  useEffect(() => {
+    if (!canvasApiReady) {
+      setMessage("自由画布接口还未加载。请重新构建主进程并重启软件。");
+      return;
+    }
+    let mounted = true;
+    window.productStudio
+      .listCanvasProjects()
+      .then((items) => {
+        if (mounted) setProjects(items);
+      })
+      .catch((error) => {
+        if (mounted) setMessage(error instanceof Error ? error.message : "读取画布项目失败。");
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const resize = () => {
+      setStageSize({
+        width: Math.max(420, viewport.clientWidth),
+        height: Math.max(420, viewport.clientHeight)
+      });
+    };
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const stage = visibleStageRef.current;
+    const transformer = transformerRef.current;
+    if (!stage || !transformer) return;
+    const selectedKonvaNodes = selectedIds
+      .map((nodeId) => stage.findOne(`#canvas-node-${nodeId}`))
+      .filter((node): node is Konva.Node => Boolean(node));
+    transformer.nodes(selectedKonvaNodes);
+    transformer.getLayer()?.batchDraw();
+  }, [activeProject.nodes, selectedIds]);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (isCanvasTypingTarget(event.target)) return;
+      const key = event.key.toLowerCase();
+      if (event.code === "Space") {
+        event.preventDefault();
+        setIsSpacePanning(true);
+      } else if ((event.ctrlKey || event.metaKey) && key === "z") {
+        event.preventDefault();
+        undoCanvas();
+      } else if ((event.ctrlKey || event.metaKey) && (key === "y" || (event.shiftKey && key === "z"))) {
+        event.preventDefault();
+        redoCanvas();
+      } else if ((event.ctrlKey || event.metaKey) && key === "c") {
+        event.preventDefault();
+        copySelectedNodes();
+      } else if ((event.ctrlKey || event.metaKey) && key === "v") {
+        event.preventDefault();
+        pasteNodes();
+      } else if ((event.ctrlKey || event.metaKey) && key === "d") {
+        event.preventDefault();
+        duplicateSelectedNodes();
+      } else if ((event.ctrlKey || event.metaKey) && key === "a") {
+        event.preventDefault();
+        setSelectedIds(activeProject.nodes.filter((node) => node.visible && !node.locked).map((node) => node.id));
+      } else if (event.key === "Delete" || event.key === "Backspace") {
+        event.preventDefault();
+        deleteSelectedNodes();
+      } else if (event.key === "Escape") {
+        setSelectedIds([]);
+        setContextMenu(null);
+        setSelectionBox(null);
+      } else if (event.key === "+" || event.key === "=") {
+        event.preventDefault();
+        setZoom((value) => clamp(value + 0.1, 0.18, 2.6));
+      } else if (event.key === "-") {
+        event.preventDefault();
+        setZoom((value) => clamp(value - 0.1, 0.18, 2.6));
+      }
+    }
+    function handleKeyUp(event: KeyboardEvent) {
+      if (event.code === "Space") {
+        setIsSpacePanning(false);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  });
+
+  function refreshProjects(nextActive?: CanvasProject) {
+    if (!canvasApiReady) {
+      setMessage("自由画布接口还未加载。请重新构建主进程并重启软件。");
+      return Promise.resolve();
+    }
+    return window.productStudio.listCanvasProjects().then((items) => {
+      setProjects(items);
+      if (nextActive) {
+        setActiveProject(nextActive);
+        setDirty(false);
+      }
+    });
+  }
+
+  function rememberSnapshot() {
+    setUndoStack((current) => [...current.slice(-39), snapshotProject(activeProject)]);
+    setRedoStack([]);
+    setDirty(true);
+  }
+
+  function replaceNodes(nextNodes: CanvasNode[]) {
+    setActiveProject((current) => ({ ...current, nodes: nextNodes, updatedAt: new Date().toISOString() }));
+  }
+
+  function commitNodes(updater: (nodes: CanvasNode[]) => CanvasNode[]) {
+    rememberSnapshot();
+    replaceNodes(updater(activeProject.nodes));
+  }
+
+  function updateProjectPatch(patch: Partial<Pick<CanvasProject, "title" | "width" | "height" | "background">>) {
+    rememberSnapshot();
+    setActiveProject((current) => ({ ...current, ...patch, updatedAt: new Date().toISOString() }));
+  }
+
+  function updateNode(nodeId: string, patch: Partial<CanvasNode>) {
+    replaceNodes(
+      activeProject.nodes.map((node) =>
+        node.id === nodeId ? normalizeCanvasNode({ ...node, ...patch } as CanvasNode, snapToGrid) : node
+      )
+    );
+    setDirty(true);
+  }
+
+  async function openProject(projectId: string) {
+    if (!canvasApiReady) {
+      setMessage("自由画布接口还未加载。请重新构建主进程并重启软件。");
+      return;
+    }
+    if (dirty) {
+      setMessage("当前画布有未保存更改，请先保存再切换项目。");
+      return;
+    }
+    setBusy(true);
+    try {
+      const project = await window.productStudio.getCanvasProject(projectId);
+      if (!project) {
+        setMessage("画布项目不存在。");
+        return;
+      }
+      setActiveProject(project);
+      setZoom(project.viewport?.zoom ?? 0.55);
+      setPan({ x: project.viewport?.panX ?? 160, y: project.viewport?.panY ?? 60 });
+      setShowGrid(project.gridEnabled ?? true);
+      setSnapToGrid(project.snapEnabled ?? true);
+      setSelectedIds((project.selectedNodeIds ?? []).filter((nodeId) => project.nodes.some((node) => node.id === nodeId)));
+      setUndoStack([]);
+      setRedoStack([]);
+      setDirty(false);
+      setMessage("已打开画布项目。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "打开画布项目失败。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function createProject() {
+    if (dirty) {
+      setMessage("当前画布有未保存更改，请先保存再新建。");
+      return;
+    }
+    setActiveProject(createDraftCanvasProject());
+    setSelectedIds([]);
+    setZoom(0.55);
+    setPan({ x: 160, y: 60 });
+    setShowGrid(true);
+    setSnapToGrid(true);
+    setUndoStack([]);
+    setRedoStack([]);
+    setDirty(false);
+    setMessage("已新建空白自由画布。");
+  }
+
+  async function saveProject() {
+    if (!canvasApiReady) {
+      setMessage("自由画布接口还未加载。请重新构建主进程并重启软件。");
+      return;
+    }
+    setBusy(true);
+    try {
+      const thumbnailDataUrl = createCanvasDataUrl("png", 0.18);
+      const saved = await window.productStudio.saveCanvasProject({
+        id: activeProject.draft ? undefined : activeProject.id,
+        title: activeProject.title,
+        width: activeProject.width,
+        height: activeProject.height,
+        background: activeProject.background,
+        nodes: activeProject.nodes,
+        viewport: { zoom, panX: pan.x, panY: pan.y },
+        gridEnabled: showGrid,
+        snapEnabled: snapToGrid,
+        selectedNodeIds: selectedIds,
+        thumbnailDataUrl
+      });
+      await refreshProjects(saved);
+      setActiveProject({ ...saved, draft: false });
+      setMessage("自由画布已保存。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "保存自由画布失败。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function duplicateProject(projectId: string) {
+    if (!canvasApiReady) {
+      setMessage("自由画布接口还未加载。请重新构建主进程并重启软件。");
+      return;
+    }
+    setBusy(true);
+    try {
+      const duplicated = await window.productStudio.duplicateCanvasProject(projectId);
+      await refreshProjects(duplicated);
+      setMessage("已复制画布项目。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "复制画布项目失败。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteProject(projectId: string) {
+    if (!canvasApiReady) {
+      setMessage("自由画布接口还未加载。请重新构建主进程并重启软件。");
+      return;
+    }
+    setBusy(true);
+    try {
+      await window.productStudio.deleteCanvasProject(projectId);
+      await refreshProjects();
+      if (activeProject.id === projectId) {
+        setActiveProject(createDraftCanvasProject());
+        setSelectedIds([]);
+        setDirty(false);
+      }
+      setMessage("画布项目已删除。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "删除画布项目失败。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addLocalImage(point?: { x: number; y: number }) {
+    try {
+      const imported = await window.productStudio.selectImage();
+      if (!imported) return;
+      if (point) {
+        addImageNodeAtPoint(imported.sourceImagePath, imported.dimensions.width, imported.dimensions.height, "本地图片", point);
+        return;
+      }
+      addImageNode(imported.sourceImagePath, imported.dimensions.width, imported.dimensions.height, "本地图片");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "导入图片失败。");
+    }
+  }
+
+  function getDropCanvasPoint(event: DragEvent<HTMLElement>) {
+    const viewport = viewportRef.current;
+    if (!viewport) {
+      return { x: activeProject.width / 2, y: activeProject.height / 2 };
+    }
+    const rect = viewport.getBoundingClientRect();
+    return {
+      x: (event.clientX - rect.left - pan.x) / zoom,
+      y: (event.clientY - rect.top - pan.y) / zoom
+    };
+  }
+
+  async function importDroppedImageFile(file: File, point: { x: number; y: number }) {
+    const filePath = window.productStudio.getFilePath(file);
+    if (!filePath) {
+      setMessage("无法读取拖入图片路径，请使用左侧导入按钮。");
+      return;
+    }
+    const imported = await window.productStudio.importImage(filePath);
+    addImageNodeAtPoint(
+      imported.sourceImagePath,
+      imported.dimensions.width,
+      imported.dimensions.height,
+      file.name || "拖入图片",
+      point
+    );
+  }
+
+  async function handleCanvasDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const point = getDropCanvasPoint(event);
+    const galleryPayload = event.dataTransfer.getData("application/x-product-shot-gallery-image");
+    if (galleryPayload) {
+      try {
+        const item = JSON.parse(galleryPayload) as Pick<PersonalGalleryItem, "imagePath" | "title">;
+        addImageNodeAtPoint(item.imagePath, 900, 900, item.title || "图库图片", point);
+        return;
+      } catch {
+        setMessage("图库图片拖入失败。");
+        return;
+      }
+    }
+
+    const imageFiles = Array.from(event.dataTransfer.files).filter((file) => file.type.startsWith("image/"));
+    if (imageFiles.length === 0) {
+      setMessage("请拖入 PNG、JPG 或 WebP 图片。");
+      return;
+    }
+    try {
+      await Promise.all(
+        imageFiles.map((file, index) =>
+          importDroppedImageFile(file, { x: point.x + index * 28, y: point.y + index * 28 })
+        )
+      );
+      setMessage(`已拖入 ${imageFiles.length} 张图片。`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "拖入图片失败。");
+    }
+  }
+
+  function addGalleryImage(item: PersonalGalleryItem) {
+    addImageNode(item.imagePath, 900, 900, item.title);
+  }
+
+  function addImageNode(sourcePath: string, naturalWidth: number, naturalHeight: number, name: string) {
+    const maxWidth = Math.min(420, activeProject.width * 0.55);
+    const ratio = naturalWidth > 0 && naturalHeight > 0 ? naturalHeight / naturalWidth : 1;
+    const width = maxWidth;
+    const height = Math.max(80, width * ratio);
+    commitNodes((nodes) => [
+      ...nodes,
+      {
+        id: createCanvasId(),
+        type: "image",
+        name,
+        x: activeProject.width / 2 - width / 2,
+        y: activeProject.height / 2 - height / 2,
+        width,
+        height,
+        rotation: 0,
+        opacity: 1,
+        locked: false,
+        visible: true,
+        sourcePath,
+        naturalWidth,
+        naturalHeight
+      }
+    ]);
+  }
+
+  function addImageNodeAtPoint(sourcePath: string, naturalWidth: number, naturalHeight: number, name: string, point: { x: number; y: number }) {
+    const maxWidth = Math.min(420, activeProject.width * 0.55);
+    const ratio = naturalWidth > 0 && naturalHeight > 0 ? naturalHeight / naturalWidth : 1;
+    const width = maxWidth;
+    const height = Math.max(80, width * ratio);
+    commitNodes((nodes) => [
+      ...nodes,
+      {
+        id: createCanvasId(),
+        type: "image",
+        name,
+        x: point.x - width / 2,
+        y: point.y - height / 2,
+        width,
+        height,
+        rotation: 0,
+        opacity: 1,
+        locked: false,
+        visible: true,
+        sourcePath,
+        naturalWidth,
+        naturalHeight
+      }
+    ]);
+  }
+
+  function addTextNode(point?: { x: number; y: number }) {
+    const x = point?.x ?? activeProject.width / 2 - 160;
+    const y = point?.y ?? activeProject.height / 2 - 40;
+    commitNodes((nodes) => [
+      ...nodes,
+      {
+        id: createCanvasId(),
+        type: "text",
+        name: "文字",
+        x,
+        y,
+        width: 320,
+        height: 80,
+        rotation: 0,
+        opacity: 1,
+        locked: false,
+        visible: true,
+        text: "双击编辑文字",
+        fontFamily: "Microsoft YaHei",
+        fontSize: 44,
+        fontStyle: "bold",
+        align: "center",
+        fill: "#2f241b",
+        stroke: "#ffffff",
+        strokeWidth: 0,
+        shadowColor: "#7b4b26",
+        shadowBlur: 0
+      }
+    ]);
+  }
+
+  function addShapeNode(shapeType: CanvasShapeNode["shapeType"], point?: { x: number; y: number }) {
+    const x = point?.x ?? activeProject.width / 2 - 120;
+    const y = point?.y ?? activeProject.height / 2 - 90;
+    commitNodes((nodes) => [
+      ...nodes,
+      {
+        id: createCanvasId(),
+        type: "shape",
+        shapeType,
+        name: shapeType === "circle" ? "圆形" : shapeType === "arrow" ? "箭头" : shapeType === "line" ? "线条" : "矩形",
+        x,
+        y,
+        width: shapeType === "line" || shapeType === "arrow" ? 260 : 240,
+        height: shapeType === "line" || shapeType === "arrow" ? 0 : 180,
+        rotation: 0,
+        opacity: 1,
+        locked: false,
+        visible: true,
+        fill: shapeType === "line" || shapeType === "arrow" ? "transparent" : "#f4d7ad",
+        stroke: "#b66c32",
+        strokeWidth: 4,
+        cornerRadius: shapeType === "rect" ? 18 : 999
+      }
+    ]);
+  }
+
+  function addNoteNode(point?: { x: number; y: number }) {
+    const x = point?.x ?? activeProject.width / 2 - 150;
+    const y = point?.y ?? activeProject.height / 2 - 100;
+    commitNodes((nodes) => [
+      ...nodes,
+      {
+        id: createCanvasId(),
+        type: "note",
+        name: "便签",
+        x,
+        y,
+        width: 300,
+        height: 200,
+        rotation: 0,
+        opacity: 1,
+        locked: false,
+        visible: true,
+        text: "输入想法、提示词或制作备注",
+        fill: "#fff1cc",
+        stroke: "#d39a4c",
+        strokeWidth: 2,
+        fontSize: 26,
+        fontFamily: "Microsoft YaHei"
+      }
+    ]);
+  }
+
+  function addConnectorNode(point?: { x: number; y: number }) {
+    const x = point?.x ?? activeProject.width / 2 - 140;
+    const y = point?.y ?? activeProject.height / 2 - 70;
+    commitNodes((nodes) => [
+      ...nodes,
+      {
+        id: createCanvasId(),
+        type: "connector",
+        name: "连接线",
+        x,
+        y,
+        width: 280,
+        height: 140,
+        rotation: 0,
+        opacity: 1,
+        locked: false,
+        visible: true,
+        stroke: "#b66c32",
+        strokeWidth: 5,
+        label: ""
+      }
+    ]);
+  }
+
+  function addAiTaskNode(point?: { x: number; y: number }) {
+    const x = point?.x ?? activeProject.width / 2 - 190;
+    const y = point?.y ?? activeProject.height / 2 - 115;
+    commitNodes((nodes) => [
+      ...nodes,
+      {
+        id: createCanvasId(),
+        type: "aiTask",
+        name: "AI 任务",
+        x,
+        y,
+        width: 380,
+        height: 230,
+        rotation: 0,
+        opacity: 1,
+        locked: false,
+        visible: true,
+        prompt: aiPrompt,
+        status: "draft",
+        sourceNodeIds: selectedIds
+      }
+    ]);
+  }
+
+  function duplicateSelectedNodes() {
+    if (selectedNodes.length === 0) {
+      setMessage("请先选择要复制的元素。");
+      return;
+    }
+    const duplicated = selectedNodes.map((node) => ({
+      ...node,
+      id: createCanvasId(),
+      name: `${node.name} 副本`,
+      x: node.x + 32,
+      y: node.y + 32,
+      groupId: undefined
+    })) as CanvasNode[];
+    commitNodes((nodes) => [...nodes, ...duplicated]);
+    setSelectedIds(duplicated.map((node) => node.id));
+  }
+
+  function fitCanvasToView() {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const nextZoom = clamp(
+      Math.min((viewport.clientWidth - 120) / activeProject.width, (viewport.clientHeight - 120) / activeProject.height),
+      0.18,
+      1.6
+    );
+    setZoom(nextZoom);
+    setPan({
+      x: (viewport.clientWidth - activeProject.width * nextZoom) / 2,
+      y: (viewport.clientHeight - activeProject.height * nextZoom) / 2
+    });
+  }
+
+  function handleStageMouseDown(event: Konva.KonvaEventObject<globalThis.MouseEvent>) {
+    const stage = visibleStageRef.current;
+    if (!stage) return;
+    setContextMenu(null);
+    if (tool === "pan" || isSpacePanning || event.evt.button === 1) {
+      const pointer = stage.getPointerPosition();
+      if (pointer) {
+        setIsPanning(true);
+        setLastPanPoint(pointer);
+      }
+      return;
+    }
+    const isStageClick = event.target === stage || event.target.name() === "canvas-background";
+    const point = getCanvasPoint(stage, pan, zoom);
+    if (!point) return;
+    if (tool === "text") {
+      addTextNode(point);
+      setTool("select");
+      return;
+    }
+    if (tool === "note") {
+      addNoteNode(point);
+      setTool("select");
+      return;
+    }
+    if (tool === "rect" || tool === "circle" || tool === "line" || tool === "arrow") {
+      addShapeNode(tool, point);
+      setTool("select");
+      return;
+    }
+    if (tool === "connector") {
+      addConnectorNode(point);
+      setTool("select");
+      return;
+    }
+    if (tool === "aiTask") {
+      addAiTaskNode(point);
+      setTool("select");
+      return;
+    }
+    if (tool === "brush" || tool === "eraser") {
+      rememberSnapshot();
+      setIsDrawing(true);
+      const drawNode: CanvasNode = {
+        id: createCanvasId(),
+        type: "freehand",
+        name: tool === "eraser" ? "橡皮擦" : "画笔",
+        x: 0,
+        y: 0,
+        width: activeProject.width,
+        height: activeProject.height,
+        rotation: 0,
+        opacity: 1,
+        locked: false,
+        visible: true,
+        points: [point.x, point.y],
+        stroke: tool === "eraser" ? "#ffffff" : brushColor,
+        strokeWidth: brushSize,
+        compositeOperation: tool === "eraser" ? "destination-out" : "source-over"
+      };
+      replaceNodes([...activeProject.nodes, drawNode]);
+      return;
+    }
+    if (isStageClick) {
+      if (!event.evt.shiftKey && !event.evt.ctrlKey && !event.evt.metaKey) {
+        setSelectedIds([]);
+      }
+      selectionStartRef.current = point;
+      setSelectionBox({ x: point.x, y: point.y, width: 0, height: 0 });
+    }
+  }
+
+  function handleStageMouseMove() {
+    const stage = visibleStageRef.current;
+    if (!stage) return;
+    const pointer = stage.getPointerPosition();
+    if (!pointer) return;
+    if (isPanning && lastPanPoint) {
+      setPan((current) => ({
+        x: current.x + pointer.x - lastPanPoint.x,
+        y: current.y + pointer.y - lastPanPoint.y
+      }));
+      setLastPanPoint(pointer);
+      return;
+    }
+    if (selectionStartRef.current) {
+      const point = getCanvasPoint(stage, pan, zoom);
+      if (!point) return;
+      const start = selectionStartRef.current;
+      setSelectionBox(normalizeSelectionBox(start, point));
+      return;
+    }
+    if (!isDrawing) return;
+    const point = getCanvasPoint(stage, pan, zoom);
+    if (!point) return;
+    setActiveProject((current) => {
+      const nextNodes = current.nodes.map((node, index) => {
+        if (index !== current.nodes.length - 1 || (node.type !== "draw" && node.type !== "freehand")) return node;
+        return { ...node, points: [...node.points, point.x, point.y] };
+      });
+      return { ...current, nodes: nextNodes, updatedAt: new Date().toISOString() };
+    });
+    setDirty(true);
+  }
+
+  function handleStageMouseUp(event?: Konva.KonvaEventObject<globalThis.MouseEvent>) {
+    setIsPanning(false);
+    setLastPanPoint(null);
+    setIsDrawing(false);
+    if (selectionStartRef.current && selectionBox) {
+      const hasArea = Math.abs(selectionBox.width) > 8 || Math.abs(selectionBox.height) > 8;
+      if (hasArea) {
+        const matches = activeProject.nodes
+          .filter((node) => node.visible && !node.locked && rectanglesIntersect(selectionBox, getCanvasNodeBounds(node)))
+          .map((node) => node.id);
+        if (event?.evt.shiftKey || event?.evt.ctrlKey || event?.evt.metaKey) {
+          setSelectedIds((current) => Array.from(new Set([...current, ...matches])));
+        } else {
+          setSelectedIds(matches);
+        }
+      }
+    }
+    selectionStartRef.current = null;
+    setSelectionBox(null);
+  }
+
+  function handleWheel(event: Konva.KonvaEventObject<globalThis.WheelEvent>) {
+    event.evt.preventDefault();
+    const stage = visibleStageRef.current;
+    const pointer = stage?.getPointerPosition();
+    if (!pointer) return;
+    const scaleBy = 1.06;
+    const oldZoom = zoom;
+    const nextZoom = clamp(event.evt.deltaY > 0 ? oldZoom / scaleBy : oldZoom * scaleBy, 0.18, 2.6);
+    const mousePointTo = {
+      x: (pointer.x - pan.x) / oldZoom,
+      y: (pointer.y - pan.y) / oldZoom
+    };
+    setZoom(nextZoom);
+    setPan({
+      x: pointer.x - mousePointTo.x * nextZoom,
+      y: pointer.y - mousePointTo.y * nextZoom
+    });
+  }
+
+  function handleStageContextMenu(event: Konva.KonvaEventObject<globalThis.PointerEvent>) {
+    event.evt.preventDefault();
+    const stage = visibleStageRef.current;
+    if (!stage) return;
+    const point = getCanvasPoint(stage, pan, zoom);
+    const nodeId = getCanvasNodeIdFromKonvaNode(event.target);
+    if (nodeId && !selectedIds.includes(nodeId)) {
+      const node = activeProject.nodes.find((item) => item.id === nodeId);
+      if (node) handleNodeSelect(node, false);
+    }
+    setContextMenu({
+      x: event.evt.clientX,
+      y: event.evt.clientY,
+      canvasX: point?.x ?? activeProject.width / 2,
+      canvasY: point?.y ?? activeProject.height / 2
+    });
+  }
+
+  function lockSelectedNodes(locked: boolean) {
+    if (selectedIds.length === 0) return;
+    commitNodes((nodes) => nodes.map((node) => (selectedIds.includes(node.id) ? { ...node, locked } : node)));
+  }
+
+  function hideSelectedNodes() {
+    if (selectedIds.length === 0) return;
+    commitNodes((nodes) => nodes.map((node) => (selectedIds.includes(node.id) ? { ...node, visible: false } : node)));
+    setSelectedIds([]);
+  }
+
+  function handleNodeSelect(node: CanvasNode, additive: boolean) {
+    if (node.locked) return;
+    const groupIds = node.groupId ? activeProject.nodes.filter((item) => item.groupId === node.groupId).map((item) => item.id) : [node.id];
+    setSelectedIds((current) => {
+      if (additive) {
+        const next = new Set(current);
+        groupIds.forEach((id) => next.add(id));
+        return Array.from(next);
+      }
+      return groupIds;
+    });
+  }
+
+  function handleNodeDragStart() {
+    rememberSnapshot();
+    dragSnapshotRef.current = Object.fromEntries(activeProject.nodes.map((node) => [node.id, { x: node.x, y: node.y }]));
+  }
+
+  function handleNodeDragMove(nodeId: string, nextPosition: { x: number; y: number }) {
+    const snapshot = dragSnapshotRef.current;
+    if (!snapshot) return;
+    const origin = snapshot[nodeId];
+    if (!origin) return;
+    const dx = nextPosition.x - origin.x;
+    const dy = nextPosition.y - origin.y;
+    const selectedSet = new Set(selectedIds.includes(nodeId) ? selectedIds : [nodeId]);
+    replaceNodes(
+      activeProject.nodes.map((node) => {
+        if (!selectedSet.has(node.id)) return node;
+        const start = snapshot[node.id] ?? { x: node.x, y: node.y };
+        return normalizeCanvasNode({ ...node, x: start.x + dx, y: start.y + dy } as CanvasNode, snapToGrid);
+      })
+    );
+  }
+
+  function handleNodeDragEnd() {
+    dragSnapshotRef.current = null;
+  }
+
+  function deleteSelectedNodes() {
+    if (selectedIds.length === 0) return;
+    commitNodes((nodes) => nodes.filter((node) => !selectedIds.includes(node.id)));
+    setSelectedIds([]);
+  }
+
+  function copySelectedNodes() {
+    clipboardRef.current = selectedNodes.map((node) => ({ ...node }));
+    setMessage(clipboardRef.current.length > 0 ? `已复制 ${clipboardRef.current.length} 个元素。` : "请先选择元素。");
+  }
+
+  function pasteNodes() {
+    if (clipboardRef.current.length === 0) return;
+    const pasted = clipboardRef.current.map((node) => ({
+      ...node,
+      id: createCanvasId(),
+      name: `${node.name} 副本`,
+      x: node.x + 28,
+      y: node.y + 28,
+      groupId: undefined
+    })) as CanvasNode[];
+    commitNodes((nodes) => [...nodes, ...pasted]);
+    setSelectedIds(pasted.map((node) => node.id));
+  }
+
+  function moveLayer(direction: "front" | "back" | "forward" | "backward") {
+    if (selectedIds.length === 0) return;
+    commitNodes((nodes) => reorderCanvasNodes(nodes, selectedIds, direction));
+  }
+
+  function alignSelected(kind: "left" | "center" | "right" | "top" | "middle" | "bottom") {
+    if (selectedIds.length < 2) return;
+    const bounds = selectedNodes.map(getCanvasNodeBounds);
+    const left = Math.min(...bounds.map((item) => item.x));
+    const top = Math.min(...bounds.map((item) => item.y));
+    const right = Math.max(...bounds.map((item) => item.x + item.width));
+    const bottom = Math.max(...bounds.map((item) => item.y + item.height));
+    commitNodes((nodes) =>
+      nodes.map((node) => {
+        if (!selectedIds.includes(node.id)) return node;
+        if (kind === "left") return { ...node, x: left };
+        if (kind === "center") return { ...node, x: (left + right) / 2 - getCanvasNodeBounds(node).width / 2 };
+        if (kind === "right") return { ...node, x: right - getCanvasNodeBounds(node).width };
+        if (kind === "top") return { ...node, y: top };
+        if (kind === "middle") return { ...node, y: (top + bottom) / 2 - getCanvasNodeBounds(node).height / 2 };
+        return { ...node, y: bottom - getCanvasNodeBounds(node).height };
+      })
+    );
+  }
+
+  function groupSelectedNodes() {
+    if (selectedIds.length < 2) return;
+    const groupId = createCanvasId();
+    commitNodes((nodes) => nodes.map((node) => (selectedIds.includes(node.id) ? { ...node, groupId } : node)));
+  }
+
+  function ungroupSelectedNodes() {
+    if (selectedIds.length === 0) return;
+    const selectedGroupIds = new Set(selectedNodes.map((node) => node.groupId).filter(Boolean));
+    commitNodes((nodes) => nodes.map((node) => (node.groupId && selectedGroupIds.has(node.groupId) ? { ...node, groupId: undefined } : node)));
+  }
+
+  function undoCanvas() {
+    setUndoStack((current) => {
+      const previous = current[current.length - 1];
+      if (!previous) return current;
+      setRedoStack((redo) => [...redo, snapshotProject(activeProject)]);
+      setActiveProject((project) => ({ ...project, ...previous, updatedAt: new Date().toISOString() }));
+      setSelectedIds([]);
+      setDirty(true);
+      return current.slice(0, -1);
+    });
+  }
+
+  function redoCanvas() {
+    setRedoStack((current) => {
+      const next = current[current.length - 1];
+      if (!next) return current;
+      setUndoStack((undo) => [...undo, snapshotProject(activeProject)]);
+      setActiveProject((project) => ({ ...project, ...next, updatedAt: new Date().toISOString() }));
+      setSelectedIds([]);
+      setDirty(true);
+      return current.slice(0, -1);
+    });
+  }
+
+  function createCanvasDataUrl(format: ExportFormat, pixelRatio = 1) {
+    const stage = exportStageRef.current;
+    if (!stage) {
+      throw new Error("Canvas is not ready.");
+    }
+    return stage.toDataURL({
+      x: 0,
+      y: 0,
+      width: activeProject.width,
+      height: activeProject.height,
+      pixelRatio,
+      mimeType: format === "jpg" ? "image/jpeg" : `image/${format}`,
+      quality: 0.94
+    });
+  }
+
+  async function exportCanvas() {
+    if (!canvasApiReady) {
+      setMessage("自由画布接口还未加载。请重新构建主进程并重启软件。");
+      return;
+    }
+    setBusy(true);
+    try {
+      const imagePath = await window.productStudio.exportCanvasImage({
+        dataUrl: createCanvasDataUrl(exportFormat),
+        title: activeProject.title,
+        format: exportFormat
+      });
+      setMessage(`已导出：${imagePath.imagePath}`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "导出自由画布失败。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function addRenderToGallery() {
+    if (!canvasApiReady || typeof window.productStudio.addCanvasRenderToGallery !== "function") {
+      setMessage("自由画布接口还未加载。请重新构建主进程并重启软件。");
+      return;
+    }
+    setBusy(true);
+    try {
+      const item = await window.productStudio.addCanvasRenderToGallery({
+        dataUrl: createCanvasDataUrl(exportFormat),
+        title: activeProject.title || "自由画布作品",
+        format: exportFormat
+      });
+      props.onGalleryItemAdded(item);
+      setMessage("当前画布已加入个人图库。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "加入个人图库失败。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const canvasTransform = { x: pan.x, y: pan.y, scaleX: zoom, scaleY: zoom };
+  const layerNodes = activeProject.nodes.filter((node) => node.visible);
+  const workspaceClassName = [
+    "canvas-workspace",
+    leftPanelOpen ? "canvas-left-open" : "canvas-left-closed",
+    rightPanelOpen ? "canvas-right-open" : "canvas-right-closed"
+  ].join(" ");
+
+  return (
+    <section className={workspaceClassName}>
+      <aside className={`canvas-side-panel canvas-projects-panel ${leftPanelOpen ? "" : "collapsed"}`}>
+        <div className="canvas-panel-heading">
+          <strong>画布项目</strong>
+          <button className="icon-button" onClick={createProject} title="新建画布" disabled={busy}>
+            <Plus size={15} />
+          </button>
+        </div>
+        <div className="canvas-project-list">
+          {projects.length === 0 ? (
+            <div className="canvas-empty-note">暂无已保存项目。保存当前画布后会出现在这里。</div>
+          ) : (
+            projects.map((project) => (
+              <article
+                key={project.id}
+                className={`canvas-project-card ${activeProject.id === project.id ? "active" : ""}`}
+              >
+                <button onClick={() => void openProject(project.id)} disabled={busy}>
+                  {project.thumbnailPath ? (
+                    <img src={window.productStudio.toFileUrl(project.thumbnailPath)} alt={project.title} />
+                  ) : (
+                    <span className="canvas-project-placeholder">
+                      <PenLine size={20} />
+                    </span>
+                  )}
+                  <span>
+                    <strong>{project.title}</strong>
+                    <small>
+                      {project.width} x {project.height}
+                    </small>
+                  </span>
+                </button>
+                <div className="canvas-project-actions">
+                  <button className="icon-button" onClick={() => void duplicateProject(project.id)} title="复制项目">
+                    <Copy size={14} />
+                  </button>
+                  <button className="icon-button danger" onClick={() => void deleteProject(project.id)} title="删除项目">
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </article>
+            ))
+          )}
+        </div>
+
+        <div className="canvas-panel-heading">
+          <strong>工具</strong>
+        </div>
+        <div className="canvas-tool-grid">
+          {[
+            { id: "select", label: "选择", icon: <MousePointer2 size={16} /> },
+            { id: "pan", label: "拖动", icon: <Move size={16} /> },
+            { id: "text", label: "文字", icon: <Edit3 size={16} /> },
+            { id: "note", label: "便签", icon: <RectangleVertical size={16} /> },
+            { id: "rect", label: "矩形", icon: <Square size={16} /> },
+            { id: "circle", label: "圆形", icon: <CircleAlert size={16} /> },
+            { id: "line", label: "线条", icon: <RectangleHorizontal size={16} /> },
+            { id: "arrow", label: "箭头", icon: <ArrowRight size={16} /> },
+            { id: "connector", label: "连接", icon: <MapPin size={16} /> },
+            { id: "brush", label: "画笔", icon: <Brush size={16} /> },
+            { id: "eraser", label: "橡皮", icon: <Eraser size={16} /> },
+            { id: "aiTask", label: "AI节点", icon: <Sparkles size={16} /> }
+          ].map((item) => (
+            <button
+              key={item.id}
+              className={tool === item.id ? "active" : ""}
+              onClick={() => setTool(item.id as CanvasTool)}
+              type="button"
+            >
+              {item.icon}
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="canvas-ai-seed">
+          <label>
+            AI 节点提示词
+            <textarea value={aiPrompt} onChange={(event) => setAiPrompt(event.target.value)} />
+          </label>
+          <button className="secondary-button" type="button" onClick={() => addAiTaskNode()}>
+            <Sparkles size={14} />
+            插入任务节点
+          </button>
+        </div>
+
+        <div className="canvas-panel-heading">
+          <strong>图库素材</strong>
+          <button className="icon-button" onClick={() => void addLocalImage()} title="导入本地图片">
+            <ImagePlus size={15} />
+          </button>
+        </div>
+        <div className="canvas-asset-list">
+          {imageGalleryItems.length === 0 ? (
+            <div className="canvas-empty-note">个人图库中暂无图片素材。</div>
+          ) : (
+            imageGalleryItems.slice(0, 30).map((item) => (
+              <button
+                key={item.id}
+                draggable
+                onDragStart={(event) => {
+                  event.dataTransfer.effectAllowed = "copy";
+                  event.dataTransfer.setData(
+                    "application/x-product-shot-gallery-image",
+                    JSON.stringify({ imagePath: item.imagePath, title: item.title })
+                  );
+                }}
+                onClick={() => addGalleryImage(item)}
+                title={`插入 ${item.title}`}
+              >
+                <img src={window.productStudio.toFileUrl(item.imagePath)} alt={item.title} />
+                <span>{item.title}</span>
+              </button>
+            ))
+          )}
+        </div>
+      </aside>
+
+      <section className="canvas-editor">
+        <div className="canvas-topbar">
+          <div className="canvas-title-strip">
+            <button className="icon-button" onClick={() => setLeftPanelOpen((value) => !value)} title={leftPanelOpen ? "收起素材面板" : "展开素材面板"}>
+              <Layers size={15} />
+            </button>
+            <input
+              className="canvas-title-input"
+              value={activeProject.title}
+              onChange={(event) => {
+                setActiveProject((current) => ({ ...current, title: event.target.value }));
+                setDirty(true);
+              }}
+              aria-label="画布标题"
+            />
+            <button className="icon-button" onClick={() => setRightPanelOpen((value) => !value)} title={rightPanelOpen ? "收起属性面板" : "展开属性面板"}>
+              <Settings size={15} />
+            </button>
+          </div>
+          <div className="canvas-topbar-actions">
+            <button className="secondary-button" onClick={props.onExit} type="button">
+              <ArrowLeft size={15} />
+              退出画布
+            </button>
+            <button className="secondary-button" onClick={undoCanvas} disabled={undoStack.length === 0 || busy}>
+              <RotateCcw size={15} />
+              撤销
+            </button>
+            <button className="secondary-button" onClick={redoCanvas} disabled={redoStack.length === 0 || busy}>
+              <Redo2 size={15} />
+              重做
+            </button>
+            <button className="secondary-button" onClick={() => setZoom((value) => clamp(value - 0.1, 0.18, 2.2))}>
+              <ZoomOut size={15} />
+            </button>
+            <span className="canvas-zoom-label">{Math.round(zoom * 100)}%</span>
+            <button className="secondary-button" onClick={() => setZoom((value) => clamp(value + 0.1, 0.18, 2.6))}>
+              <ZoomIn size={15} />
+            </button>
+            <button className="secondary-button" onClick={fitCanvasToView} type="button">
+              适配
+            </button>
+            <button className="secondary-button" onClick={() => setZoom(1)} type="button">
+              100%
+            </button>
+            <label className="canvas-inline-toggle">
+              <input type="checkbox" checked={showGrid} onChange={(event) => setShowGrid(event.target.checked)} />
+              网格
+            </label>
+            <label className="canvas-inline-toggle">
+              <input type="checkbox" checked={snapToGrid} onChange={(event) => setSnapToGrid(event.target.checked)} />
+              吸附
+            </label>
+            <select value={exportFormat} onChange={(event) => setExportFormat(event.target.value as ExportFormat)}>
+              {canvasExportFormats.map((format) => (
+                <option key={format} value={format}>
+                  {format.toUpperCase()}
+                </option>
+              ))}
+            </select>
+            <button className="secondary-button" onClick={() => void exportCanvas()} disabled={busy}>
+              <Download size={15} />
+              导出
+            </button>
+            <button className="secondary-button" onClick={() => void addRenderToGallery()} disabled={busy}>
+              <FolderPlus size={15} />
+              加入图库
+            </button>
+            <button className="primary-button" onClick={() => void saveProject()} disabled={busy}>
+              <Save size={15} />
+              {dirty ? "保存*" : "保存"}
+            </button>
+          </div>
+        </div>
+
+        {message ? <div className="canvas-message">{message}</div> : null}
+
+        <div
+          className={`canvas-stage-shell ${isPanning || isSpacePanning || tool === "pan" ? "panning" : ""}`}
+          ref={viewportRef}
+          onDragOver={(event) => {
+            event.preventDefault();
+            event.dataTransfer.dropEffect = "copy";
+          }}
+          onDrop={(event) => void handleCanvasDrop(event)}
+        >
+          <Stage
+            ref={visibleStageRef}
+            width={stageSize.width}
+            height={stageSize.height}
+            onMouseDown={handleStageMouseDown}
+            onMouseMove={handleStageMouseMove}
+            onMouseUp={handleStageMouseUp}
+            onMouseLeave={handleStageMouseUp}
+            onWheel={handleWheel}
+            onContextMenu={handleStageContextMenu}
+          >
+            <Layer {...canvasTransform}>
+              <Rect
+                name="canvas-background"
+                x={0}
+                y={0}
+                width={activeProject.width}
+                height={activeProject.height}
+                fill={activeProject.background}
+                shadowColor="rgba(89, 57, 26, 0.28)"
+                shadowBlur={24}
+                shadowOffset={{ x: 0, y: 18 }}
+              />
+              {showGrid ? <CanvasGrid width={activeProject.width} height={activeProject.height} /> : null}
+              {layerNodes.map((node) => (
+                <CanvasNodeView
+                  key={node.id}
+                  node={node}
+                  interactive
+                  selected={selectedIds.includes(node.id)}
+                  onSelect={(additive) => handleNodeSelect(node, additive)}
+                  onChange={(patch) => updateNode(node.id, patch)}
+                  onDragStart={handleNodeDragStart}
+                  onDragMove={(position) => handleNodeDragMove(node.id, position)}
+                  onDragEnd={handleNodeDragEnd}
+                />
+              ))}
+              {selectionBox ? (
+                <Rect
+                  x={selectionBox.x}
+                  y={selectionBox.y}
+                  width={selectionBox.width}
+                  height={selectionBox.height}
+                  fill="rgba(217, 161, 90, 0.14)"
+                  stroke="#b66c32"
+                  strokeWidth={1}
+                  dash={[10, 6]}
+                  listening={false}
+                />
+              ) : null}
+              <Transformer
+                ref={transformerRef}
+                rotateEnabled
+                enabledAnchors={["top-left", "top-right", "bottom-left", "bottom-right", "middle-left", "middle-right"]}
+                boundBoxFunc={(_oldBox, newBox) => (newBox.width < 12 || newBox.height < 12 ? _oldBox : newBox)}
+              />
+            </Layer>
+          </Stage>
+          {activeProject.nodes.length === 0 ? (
+            <div className="canvas-empty-overlay">
+              <strong>把图片拖到这里开始</strong>
+              <span>也可以从左侧图库、工具栏或右键菜单添加文字、便签、形状和 AI 任务节点。</span>
+            </div>
+          ) : null}
+          {contextMenu ? (
+            <div className="canvas-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }}>
+              <button onClick={() => { addTextNode({ x: contextMenu.canvasX, y: contextMenu.canvasY }); setContextMenu(null); }}>添加文字</button>
+              <button onClick={() => { addNoteNode({ x: contextMenu.canvasX, y: contextMenu.canvasY }); setContextMenu(null); }}>添加便签</button>
+              <button onClick={() => { addConnectorNode({ x: contextMenu.canvasX, y: contextMenu.canvasY }); setContextMenu(null); }}>添加连接线</button>
+              <button onClick={() => { addAiTaskNode({ x: contextMenu.canvasX, y: contextMenu.canvasY }); setContextMenu(null); }}>添加 AI 节点</button>
+              <button onClick={() => { void addLocalImage({ x: contextMenu.canvasX, y: contextMenu.canvasY }); setContextMenu(null); }}>导入图片到这里</button>
+              <hr />
+              <button onClick={() => { duplicateSelectedNodes(); setContextMenu(null); }} disabled={selectedIds.length === 0}>复制所选</button>
+              <button onClick={() => { moveLayer("front"); setContextMenu(null); }} disabled={selectedIds.length === 0}>置顶</button>
+              <button onClick={() => { moveLayer("back"); setContextMenu(null); }} disabled={selectedIds.length === 0}>置底</button>
+              <button onClick={() => { lockSelectedNodes(true); setContextMenu(null); }} disabled={selectedIds.length === 0}>锁定</button>
+              <button onClick={() => { hideSelectedNodes(); setContextMenu(null); }} disabled={selectedIds.length === 0}>隐藏</button>
+              <button className="danger" onClick={() => { deleteSelectedNodes(); setContextMenu(null); }} disabled={selectedIds.length === 0}>删除</button>
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+      <aside className={`canvas-side-panel canvas-inspector-panel ${rightPanelOpen ? "" : "collapsed"}`}>
+        <CanvasLayerPanel
+          nodes={activeProject.nodes}
+          selectedIds={selectedIds}
+          onSelect={(nodeId) => setSelectedIds([nodeId])}
+          onToggle={(nodeId, patch) => {
+            rememberSnapshot();
+            updateNode(nodeId, patch);
+          }}
+          onReorder={moveLayer}
+        />
+
+        <div className="canvas-panel-heading">
+          <strong>属性</strong>
+        </div>
+        <CanvasInspector
+          project={activeProject}
+          selectedNode={singleSelectedNode}
+          selectedCount={selectedIds.length}
+          brushColor={brushColor}
+          brushSize={brushSize}
+          onProjectChange={updateProjectPatch}
+          onBrushColorChange={setBrushColor}
+          onBrushSizeChange={setBrushSize}
+          onNodeCommit={(patch) => {
+            if (!singleSelectedNode) return;
+            rememberSnapshot();
+            updateNode(singleSelectedNode.id, patch);
+          }}
+          onDelete={deleteSelectedNodes}
+          onCopy={copySelectedNodes}
+          onPaste={pasteNodes}
+          onGroup={groupSelectedNodes}
+          onUngroup={ungroupSelectedNodes}
+          onAlign={alignSelected}
+          onLayerMove={moveLayer}
+        />
+      </aside>
+
+      <div className="canvas-export-stage" aria-hidden="true">
+        <Stage ref={exportStageRef} width={activeProject.width} height={activeProject.height}>
+          <Layer>
+            <Rect x={0} y={0} width={activeProject.width} height={activeProject.height} fill={activeProject.background} />
+            {activeProject.nodes
+              .filter((node) => node.visible)
+              .map((node) => (
+                <CanvasNodeView
+                  key={`export-${node.id}`}
+                  node={node}
+                  interactive={false}
+                  selected={false}
+                  onSelect={() => undefined}
+                  onChange={() => undefined}
+                  onDragStart={() => undefined}
+                  onDragMove={() => undefined}
+                  onDragEnd={() => undefined}
+                />
+              ))}
+          </Layer>
+        </Stage>
+      </div>
+    </section>
+  );
+}
+
+function CanvasGrid(props: { width: number; height: number }) {
+  const lines: JSX.Element[] = [];
+  const step = 80;
+  for (let x = step; x < props.width; x += step) {
+    lines.push(<Line key={`x-${x}`} points={[x, 0, x, props.height]} stroke="rgba(185, 145, 97, 0.18)" strokeWidth={1} listening={false} />);
+  }
+  for (let y = step; y < props.height; y += step) {
+    lines.push(<Line key={`y-${y}`} points={[0, y, props.width, y]} stroke="rgba(185, 145, 97, 0.18)" strokeWidth={1} listening={false} />);
+  }
+  return <>{lines}</>;
+}
+
+function CanvasNodeView(props: {
+  node: CanvasNode;
+  interactive: boolean;
+  selected: boolean;
+  onSelect: (additive: boolean) => void;
+  onChange: (patch: Partial<CanvasNode>) => void;
+  onDragStart: () => void;
+  onDragMove: (position: { x: number; y: number }) => void;
+  onDragEnd: () => void;
+}) {
+  const image = useCanvasImage(
+    props.node.type === "image" || props.node.type === "aiResult"
+      ? window.productStudio.toFileUrl(props.node.sourcePath)
+      : undefined
+  );
+  if (!props.node.visible) return null;
+
+  const common = {
+    id: `canvas-node-${props.node.id}`,
+    x: props.node.x,
+    y: props.node.y,
+    width: props.node.width,
+    height: props.node.height,
+    rotation: props.node.rotation,
+    opacity: props.node.opacity,
+    draggable: props.interactive && !props.node.locked,
+    onClick: (event: Konva.KonvaEventObject<globalThis.MouseEvent>) => {
+      event.cancelBubble = true;
+      props.onSelect(event.evt.shiftKey || event.evt.ctrlKey || event.evt.metaKey);
+    },
+    onTap: (event: Konva.KonvaEventObject<globalThis.MouseEvent>) => {
+      event.cancelBubble = true;
+      props.onSelect(false);
+    },
+    onDragStart: props.onDragStart,
+    onDragMove: (event: Konva.KonvaEventObject<globalThis.DragEvent>) => props.onDragMove({ x: event.target.x(), y: event.target.y() }),
+    onDragEnd: props.onDragEnd,
+    onTransformStart: props.onDragStart,
+    onTransformEnd: (event: Konva.KonvaEventObject<globalThis.Event>) => {
+      const target = event.target;
+      const scaleX = target.scaleX();
+      const scaleY = target.scaleY();
+      target.scaleX(1);
+      target.scaleY(1);
+      props.onChange({
+        x: target.x(),
+        y: target.y(),
+        width: Math.max(12, props.node.width * scaleX),
+        height: Math.max(12, props.node.height * scaleY),
+        rotation: target.rotation()
+      } as Partial<CanvasNode>);
+      props.onDragEnd();
+    }
+  };
+
+  if (props.node.type === "image" || props.node.type === "aiResult") {
+    return image ? (
+      <KonvaImage {...common} image={image} />
+    ) : (
+      <Rect {...common} fill="#f4eadc" stroke="#c99f67" dash={[8, 7]} />
+    );
+  }
+
+  if (props.node.type === "text") {
+    return (
+      <KonvaText
+        {...common}
+        text={props.node.text}
+        fontFamily={props.node.fontFamily}
+        fontSize={props.node.fontSize}
+        fontStyle={props.node.fontStyle}
+        align={props.node.align}
+        fill={props.node.fill}
+        stroke={props.node.stroke}
+        strokeWidth={props.node.strokeWidth}
+        shadowColor={props.node.shadowColor}
+        shadowBlur={props.node.shadowBlur}
+        verticalAlign="middle"
+      />
+    );
+  }
+
+  if (props.node.type === "note") {
+    return (
+      <Group {...common}>
+        <Rect
+          width={props.node.width}
+          height={props.node.height}
+          fill={props.node.fill}
+          stroke={props.node.stroke}
+          strokeWidth={props.node.strokeWidth}
+          cornerRadius={18}
+          shadowColor="rgba(116, 73, 32, 0.22)"
+          shadowBlur={14}
+          shadowOffset={{ x: 0, y: 8 }}
+        />
+        <KonvaText
+          x={18}
+          y={18}
+          width={Math.max(20, props.node.width - 36)}
+          height={Math.max(20, props.node.height - 36)}
+          text={props.node.text}
+          fontFamily={props.node.fontFamily}
+          fontSize={props.node.fontSize}
+          fill="#3d2a1e"
+          lineHeight={1.28}
+          verticalAlign="top"
+        />
+      </Group>
+    );
+  }
+
+  if (props.node.type === "connector") {
+    return (
+      <Group {...common}>
+        <KonvaArrow
+          points={[0, 0, props.node.width, props.node.height]}
+          stroke={props.node.stroke}
+          fill={props.node.stroke}
+          strokeWidth={props.node.strokeWidth}
+          pointerLength={22}
+          pointerWidth={22}
+          dash={props.node.dash}
+          lineCap="round"
+          lineJoin="round"
+        />
+        {props.node.label ? (
+          <KonvaText
+            x={Math.min(0, props.node.width) + Math.abs(props.node.width) / 2 - 80}
+            y={Math.min(0, props.node.height) + Math.abs(props.node.height) / 2 - 20}
+            width={160}
+            height={40}
+            text={props.node.label}
+            align="center"
+            verticalAlign="middle"
+            fontFamily="Microsoft YaHei"
+            fontSize={22}
+            fill="#4a3022"
+          />
+        ) : null}
+      </Group>
+    );
+  }
+
+  if (props.node.type === "aiTask") {
+    return (
+      <Group {...common}>
+        <Rect
+          width={props.node.width}
+          height={props.node.height}
+          fill="#fffaf3"
+          stroke="#d69a49"
+          strokeWidth={2}
+          cornerRadius={20}
+          shadowColor="rgba(119, 71, 27, 0.24)"
+          shadowBlur={18}
+          shadowOffset={{ x: 0, y: 10 }}
+        />
+        <Rect x={0} y={0} width={props.node.width} height={54} fill="#f1c47d" cornerRadius={[20, 20, 0, 0]} />
+        <KonvaText x={18} y={14} width={props.node.width - 36} height={28} text="AI 生成任务" fontFamily="Microsoft YaHei" fontSize={22} fontStyle="bold" fill="#3b271a" />
+        <KonvaText
+          x={18}
+          y={74}
+          width={props.node.width - 36}
+          height={props.node.height - 104}
+          text={props.node.prompt || "在右侧属性里输入提示词"}
+          fontFamily="Microsoft YaHei"
+          fontSize={20}
+          fill="#5b4635"
+          lineHeight={1.28}
+        />
+        <KonvaText
+          x={18}
+          y={props.node.height - 32}
+          width={props.node.width - 36}
+          height={22}
+          text={`状态：${getCanvasAiStatusLabel(props.node.status)}`}
+          fontFamily="Microsoft YaHei"
+          fontSize={15}
+          fill="#9b6433"
+        />
+      </Group>
+    );
+  }
+
+  if (props.node.type === "shape") {
+    if (props.node.shapeType === "line") {
+      return <Line {...common} points={[0, 0, props.node.width, props.node.height]} stroke={props.node.stroke} strokeWidth={props.node.strokeWidth} lineCap="round" />;
+    }
+    if (props.node.shapeType === "arrow") {
+      return <KonvaArrow {...common} points={[0, 0, props.node.width, props.node.height]} stroke={props.node.stroke} fill={props.node.stroke} strokeWidth={props.node.strokeWidth} pointerLength={22} pointerWidth={22} />;
+    }
+    return (
+      <Rect
+        {...common}
+        fill={props.node.fill}
+        stroke={props.node.stroke}
+        strokeWidth={props.node.strokeWidth}
+        cornerRadius={props.node.shapeType === "circle" ? Math.max(props.node.width, props.node.height) : props.node.cornerRadius}
+      />
+    );
+  }
+
+  if (props.node.type === "draw" || props.node.type === "freehand") {
+    return (
+      <Line
+        {...common}
+        points={props.node.points}
+        stroke={props.node.stroke}
+        strokeWidth={props.node.strokeWidth}
+        tension={0.35}
+        lineCap="round"
+        lineJoin="round"
+        globalCompositeOperation={props.node.compositeOperation}
+      />
+    );
+  }
+
+  return null;
+}
+
+function CanvasLayerPanel(props: {
+  nodes: CanvasNode[];
+  selectedIds: string[];
+  onSelect: (nodeId: string) => void;
+  onToggle: (nodeId: string, patch: Partial<CanvasNode>) => void;
+  onReorder: (direction: "front" | "back" | "forward" | "backward") => void;
+}) {
+  return (
+    <section className="canvas-layer-panel">
+      <div className="canvas-panel-heading">
+        <strong>图层</strong>
+        <div className="canvas-mini-actions">
+          <button className="icon-button" onClick={() => props.onReorder("forward")} title="上移图层">
+            <ChevronUp size={14} />
+          </button>
+          <button className="icon-button" onClick={() => props.onReorder("backward")} title="下移图层">
+            <ChevronDown size={14} />
+          </button>
+        </div>
+      </div>
+      <div className="canvas-layer-list">
+        {props.nodes.length === 0 ? (
+          <div className="canvas-empty-note">还没有元素。用左侧工具添加图片、文字或形状。</div>
+        ) : (
+          [...props.nodes].reverse().map((node) => (
+            <article key={node.id} className={`canvas-layer-row ${props.selectedIds.includes(node.id) ? "active" : ""}`}>
+              <button onClick={() => props.onSelect(node.id)}>
+                <Layers size={14} />
+                <span>{node.name}</span>
+              </button>
+              <button className="icon-button" onClick={() => props.onToggle(node.id, { visible: !node.visible })} title={node.visible ? "隐藏" : "显示"}>
+                {node.visible ? <Eye size={13} /> : <EyeOff size={13} />}
+              </button>
+              <button className="icon-button" onClick={() => props.onToggle(node.id, { locked: !node.locked })} title={node.locked ? "解锁" : "锁定"}>
+                <KeyRound size={13} />
+              </button>
+            </article>
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
+function CanvasInspector(props: {
+  project: CanvasProject;
+  selectedNode: CanvasNode | null;
+  selectedCount: number;
+  brushColor: string;
+  brushSize: number;
+  onProjectChange: (patch: Partial<Pick<CanvasProject, "title" | "width" | "height" | "background">>) => void;
+  onBrushColorChange: (value: string) => void;
+  onBrushSizeChange: (value: number) => void;
+  onNodeCommit: (patch: Partial<CanvasNode>) => void;
+  onDelete: () => void;
+  onCopy: () => void;
+  onPaste: () => void;
+  onGroup: () => void;
+  onUngroup: () => void;
+  onAlign: (kind: "left" | "center" | "right" | "top" | "middle" | "bottom") => void;
+  onLayerMove: (direction: "front" | "back" | "forward" | "backward") => void;
+}) {
+  const node = props.selectedNode;
+  return (
+    <div className="canvas-inspector">
+      <div className="canvas-field-grid two">
+        <label>
+          宽度
+          <input type="number" value={props.project.width} onChange={(event) => props.onProjectChange({ width: Number(event.target.value) })} />
+        </label>
+        <label>
+          高度
+          <input type="number" value={props.project.height} onChange={(event) => props.onProjectChange({ height: Number(event.target.value) })} />
+        </label>
+        <label>
+          背景
+          <input type="color" value={props.project.background} onChange={(event) => props.onProjectChange({ background: event.target.value })} />
+        </label>
+        <label>
+          画笔
+          <input type="color" value={props.brushColor} onChange={(event) => props.onBrushColorChange(event.target.value)} />
+        </label>
+        <label>
+          画笔粗细
+          <input type="number" min={1} max={80} value={props.brushSize} onChange={(event) => props.onBrushSizeChange(Number(event.target.value))} />
+        </label>
+      </div>
+
+      <div className="canvas-action-grid">
+        <button onClick={props.onCopy} disabled={props.selectedCount === 0}>
+          <Copy size={14} />
+          复制
+        </button>
+        <button onClick={props.onPaste}>
+          <Plus size={14} />
+          粘贴
+        </button>
+        <button onClick={props.onGroup} disabled={props.selectedCount < 2}>
+          <LayoutGrid size={14} />
+          组合
+        </button>
+        <button onClick={props.onUngroup} disabled={props.selectedCount === 0}>
+          <Rows2 size={14} />
+          解组
+        </button>
+        <button onClick={() => props.onLayerMove("front")} disabled={props.selectedCount === 0}>
+          <ChevronUp size={14} />
+          置顶
+        </button>
+        <button onClick={() => props.onLayerMove("back")} disabled={props.selectedCount === 0}>
+          <ChevronDown size={14} />
+          置底
+        </button>
+        <button className="danger" onClick={props.onDelete} disabled={props.selectedCount === 0}>
+          <Trash2 size={14} />
+          删除
+        </button>
+      </div>
+
+      <div className="canvas-action-grid compact">
+        {(["left", "center", "right", "top", "middle", "bottom"] as const).map((kind) => (
+          <button key={kind} onClick={() => props.onAlign(kind)} disabled={props.selectedCount < 2}>
+            {kind}
+          </button>
+        ))}
+      </div>
+
+      {!node ? (
+        <div className="canvas-empty-note">选择一个元素后可编辑位置、尺寸、颜色、透明度和文字样式。</div>
+      ) : (
+        <>
+          <div className="canvas-field-grid two">
+            <label>
+              X
+              <input type="number" value={Math.round(node.x)} onChange={(event) => props.onNodeCommit({ x: Number(event.target.value) })} />
+            </label>
+            <label>
+              Y
+              <input type="number" value={Math.round(node.y)} onChange={(event) => props.onNodeCommit({ y: Number(event.target.value) })} />
+            </label>
+            <label>
+              W
+              <input type="number" value={Math.round(node.width)} onChange={(event) => props.onNodeCommit({ width: Number(event.target.value) })} />
+            </label>
+            <label>
+              H
+              <input type="number" value={Math.round(node.height)} onChange={(event) => props.onNodeCommit({ height: Number(event.target.value) })} />
+            </label>
+            <label>
+              旋转
+              <input type="number" value={Math.round(node.rotation)} onChange={(event) => props.onNodeCommit({ rotation: Number(event.target.value) })} />
+            </label>
+            <label>
+              透明
+              <input type="number" min={0} max={1} step={0.05} value={node.opacity} onChange={(event) => props.onNodeCommit({ opacity: Number(event.target.value) })} />
+            </label>
+          </div>
+
+          {node.type === "text" ? (
+            <CanvasTextInspector node={node} onChange={props.onNodeCommit} />
+          ) : node.type === "shape" ? (
+            <CanvasShapeInspector node={node} onChange={props.onNodeCommit} />
+          ) : node.type === "note" ? (
+            <CanvasNoteInspector node={node} onChange={props.onNodeCommit} />
+          ) : node.type === "connector" ? (
+            <CanvasConnectorInspector node={node} onChange={props.onNodeCommit} />
+          ) : node.type === "aiTask" ? (
+            <CanvasAiTaskInspector node={node} onChange={props.onNodeCommit} />
+          ) : node.type === "draw" || node.type === "freehand" ? (
+            <CanvasDrawInspector node={node} onChange={props.onNodeCommit} />
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+}
+
+function CanvasTextInspector(props: { node: CanvasTextNode; onChange: (patch: Partial<CanvasNode>) => void }) {
+  return (
+    <div className="canvas-field-grid">
+      <label>
+        文字
+        <textarea value={props.node.text} onChange={(event) => props.onChange({ text: event.target.value } as Partial<CanvasNode>)} />
+      </label>
+      <div className="canvas-field-grid two">
+        <label>
+          字号
+          <input type="number" min={8} max={220} value={props.node.fontSize} onChange={(event) => props.onChange({ fontSize: Number(event.target.value) } as Partial<CanvasNode>)} />
+        </label>
+        <label>
+          字体
+          <select value={props.node.fontFamily} onChange={(event) => props.onChange({ fontFamily: event.target.value } as Partial<CanvasNode>)}>
+            <option value="Microsoft YaHei">微软雅黑</option>
+            <option value="SimHei">黑体</option>
+            <option value="SimSun">宋体</option>
+            <option value="Arial">Arial</option>
+          </select>
+        </label>
+        <label>
+          颜色
+          <input type="color" value={props.node.fill} onChange={(event) => props.onChange({ fill: event.target.value } as Partial<CanvasNode>)} />
+        </label>
+        <label>
+          描边
+          <input type="color" value={props.node.stroke} onChange={(event) => props.onChange({ stroke: event.target.value } as Partial<CanvasNode>)} />
+        </label>
+        <label>
+          描边宽度
+          <input type="number" min={0} max={24} value={props.node.strokeWidth} onChange={(event) => props.onChange({ strokeWidth: Number(event.target.value) } as Partial<CanvasNode>)} />
+        </label>
+        <label>
+          阴影
+          <input type="number" min={0} max={80} value={props.node.shadowBlur} onChange={(event) => props.onChange({ shadowBlur: Number(event.target.value) } as Partial<CanvasNode>)} />
+        </label>
+      </div>
+      <div className="canvas-action-grid compact">
+        <button className={props.node.fontStyle === "bold" ? "active" : ""} onClick={() => props.onChange({ fontStyle: props.node.fontStyle === "bold" ? "normal" : "bold" } as Partial<CanvasNode>)}>
+          B
+        </button>
+        {(["left", "center", "right"] as const).map((align) => (
+          <button key={align} className={props.node.align === align ? "active" : ""} onClick={() => props.onChange({ align } as Partial<CanvasNode>)}>
+            {align}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CanvasShapeInspector(props: { node: CanvasShapeNode; onChange: (patch: Partial<CanvasNode>) => void }) {
+  return (
+    <div className="canvas-field-grid two">
+      <label>
+        填充
+        <input type="color" value={props.node.fill === "transparent" ? "#ffffff" : props.node.fill} onChange={(event) => props.onChange({ fill: event.target.value } as Partial<CanvasNode>)} />
+      </label>
+      <label>
+        描边
+        <input type="color" value={props.node.stroke} onChange={(event) => props.onChange({ stroke: event.target.value } as Partial<CanvasNode>)} />
+      </label>
+      <label>
+        线宽
+        <input type="number" min={0} max={80} value={props.node.strokeWidth} onChange={(event) => props.onChange({ strokeWidth: Number(event.target.value) } as Partial<CanvasNode>)} />
+      </label>
+      <label>
+        圆角
+        <input type="number" min={0} max={999} value={props.node.cornerRadius} onChange={(event) => props.onChange({ cornerRadius: Number(event.target.value) } as Partial<CanvasNode>)} />
+      </label>
+    </div>
+  );
+}
+
+function CanvasNoteInspector(props: { node: CanvasNoteNode; onChange: (patch: Partial<CanvasNode>) => void }) {
+  return (
+    <div className="canvas-field-grid">
+      <label>
+        便签内容
+        <textarea value={props.node.text} onChange={(event) => props.onChange({ text: event.target.value } as Partial<CanvasNode>)} />
+      </label>
+      <div className="canvas-field-grid two">
+        <label>
+          背景
+          <input type="color" value={props.node.fill} onChange={(event) => props.onChange({ fill: event.target.value } as Partial<CanvasNode>)} />
+        </label>
+        <label>
+          描边
+          <input type="color" value={props.node.stroke} onChange={(event) => props.onChange({ stroke: event.target.value } as Partial<CanvasNode>)} />
+        </label>
+        <label>
+          字号
+          <input type="number" min={10} max={96} value={props.node.fontSize} onChange={(event) => props.onChange({ fontSize: Number(event.target.value) } as Partial<CanvasNode>)} />
+        </label>
+        <label>
+          线宽
+          <input type="number" min={0} max={20} value={props.node.strokeWidth} onChange={(event) => props.onChange({ strokeWidth: Number(event.target.value) } as Partial<CanvasNode>)} />
+        </label>
+      </div>
+    </div>
+  );
+}
+
+function CanvasConnectorInspector(props: { node: CanvasConnectorNode; onChange: (patch: Partial<CanvasNode>) => void }) {
+  return (
+    <div className="canvas-field-grid">
+      <label>
+        标签
+        <input value={props.node.label ?? ""} onChange={(event) => props.onChange({ label: event.target.value } as Partial<CanvasNode>)} />
+      </label>
+      <div className="canvas-field-grid two">
+        <label>
+          颜色
+          <input type="color" value={props.node.stroke} onChange={(event) => props.onChange({ stroke: event.target.value } as Partial<CanvasNode>)} />
+        </label>
+        <label>
+          线宽
+          <input type="number" min={1} max={40} value={props.node.strokeWidth} onChange={(event) => props.onChange({ strokeWidth: Number(event.target.value) } as Partial<CanvasNode>)} />
+        </label>
+      </div>
+    </div>
+  );
+}
+
+function CanvasAiTaskInspector(props: { node: Extract<CanvasNode, { type: "aiTask" }>; onChange: (patch: Partial<CanvasNode>) => void }) {
+  return (
+    <div className="canvas-field-grid">
+      <label>
+        提示词
+        <textarea value={props.node.prompt} onChange={(event) => props.onChange({ prompt: event.target.value } as Partial<CanvasNode>)} />
+      </label>
+      <label>
+        负向提示词
+        <textarea value={props.node.negativePrompt ?? ""} onChange={(event) => props.onChange({ negativePrompt: event.target.value } as Partial<CanvasNode>)} />
+      </label>
+      <label>
+        状态
+        <select value={props.node.status} onChange={(event) => props.onChange({ status: event.target.value as Extract<CanvasNode, { type: "aiTask" }>["status"] } as Partial<CanvasNode>)}>
+          <option value="draft">草稿</option>
+          <option value="ready">待生成</option>
+          <option value="running">生成中</option>
+          <option value="done">已完成</option>
+          <option value="failed">失败</option>
+        </select>
+      </label>
+      <div className="canvas-empty-note">AI 节点先作为本软件内部生成任务卡片保存，可和图库结果图一起编排；不会调用参考仓库的外部 API 封装。</div>
+    </div>
+  );
+}
+
+function CanvasDrawInspector(props: { node: Extract<CanvasNode, { type: "draw" }> | CanvasFreehandNode; onChange: (patch: Partial<CanvasNode>) => void }) {
+  return (
+    <div className="canvas-field-grid two">
+      <label>
+        颜色
+        <input type="color" value={props.node.stroke} onChange={(event) => props.onChange({ stroke: event.target.value } as Partial<CanvasNode>)} />
+      </label>
+      <label>
+        粗细
+        <input type="number" min={1} max={100} value={props.node.strokeWidth} onChange={(event) => props.onChange({ strokeWidth: Number(event.target.value) } as Partial<CanvasNode>)} />
+      </label>
+    </div>
+  );
+}
+
+function useCanvasImage(src?: string) {
+  const [image, setImage] = useState<HTMLImageElement | null>(null);
+  useEffect(() => {
+    if (!src) {
+      setImage(null);
+      return;
+    }
+    let canceled = false;
+    const nextImage = new window.Image();
+    nextImage.crossOrigin = "anonymous";
+    nextImage.onload = () => {
+      if (!canceled) setImage(nextImage);
+    };
+    nextImage.onerror = () => {
+      if (!canceled) setImage(null);
+    };
+    nextImage.src = src;
+    return () => {
+      canceled = true;
+    };
+  }, [src]);
+  return image;
+}
+
+function createDraftCanvasProject(): CanvasDraftProject {
+  const now = new Date().toISOString();
+  return {
+    id: `draft-${createCanvasId()}`,
+    userId: "",
+    title: "未命名自由画布",
+    width: defaultCanvasSize.width,
+    height: defaultCanvasSize.height,
+    background: defaultCanvasBackground,
+    nodes: [],
+    viewport: { zoom: 0.55, panX: 160, panY: 60 },
+    gridEnabled: true,
+    snapEnabled: true,
+    selectedNodeIds: [],
+    createdAt: now,
+    updatedAt: now,
+    draft: true
+  };
+}
+
+function snapshotProject(project: CanvasProject): CanvasSnapshot {
+  return {
+    background: project.background,
+    nodes: project.nodes.map((node) => ({ ...node })),
+    width: project.width,
+    height: project.height
+  };
+}
+
+function createCanvasId() {
+  return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function getCanvasPoint(stage: Konva.Stage, pan: { x: number; y: number }, zoom: number) {
+  const pointer = stage.getPointerPosition();
+  if (!pointer) return null;
+  return {
+    x: (pointer.x - pan.x) / zoom,
+    y: (pointer.y - pan.y) / zoom
+  };
+}
+
+function normalizeCanvasNode(node: CanvasNode, snapToGrid: boolean): CanvasNode {
+  if (!snapToGrid) return node;
+  return {
+    ...node,
+    x: Math.round(node.x / 8) * 8,
+    y: Math.round(node.y / 8) * 8
+  };
+}
+
+function getCanvasNodeBounds(node: CanvasNode) {
+  if ((node.type === "draw" || node.type === "freehand") && node.points.length >= 4) {
+    const xs = node.points.filter((_, index) => index % 2 === 0);
+    const ys = node.points.filter((_, index) => index % 2 === 1);
+    const left = Math.min(...xs) - node.strokeWidth;
+    const top = Math.min(...ys) - node.strokeWidth;
+    const right = Math.max(...xs) + node.strokeWidth;
+    const bottom = Math.max(...ys) + node.strokeWidth;
+    return {
+      x: left,
+      y: top,
+      width: Math.max(1, right - left),
+      height: Math.max(1, bottom - top)
+    };
+  }
+  return {
+    x: node.x,
+    y: node.y,
+    width: Math.max(1, node.width),
+    height: Math.max(1, node.height)
+  };
+}
+
+function normalizeSelectionBox(start: { x: number; y: number }, end: { x: number; y: number }): CanvasSelectionBox {
+  return {
+    x: Math.min(start.x, end.x),
+    y: Math.min(start.y, end.y),
+    width: Math.abs(end.x - start.x),
+    height: Math.abs(end.y - start.y)
+  };
+}
+
+function rectanglesIntersect(a: CanvasSelectionBox, b: CanvasSelectionBox) {
+  return a.x <= b.x + b.width && a.x + a.width >= b.x && a.y <= b.y + b.height && a.y + a.height >= b.y;
+}
+
+function getCanvasNodeIdFromKonvaNode(node: Konva.Node) {
+  let current: Konva.Node | null = node;
+  while (current) {
+    const id = current.id();
+    if (id.startsWith("canvas-node-")) {
+      return id.replace("canvas-node-", "");
+    }
+    current = current.getParent();
+  }
+  return null;
+}
+
+function getCanvasAiStatusLabel(status: Extract<CanvasNode, { type: "aiTask" }>["status"]) {
+  const labels: Record<Extract<CanvasNode, { type: "aiTask" }>["status"], string> = {
+    draft: "草稿",
+    ready: "待生成",
+    running: "生成中",
+    done: "已完成",
+    failed: "失败"
+  };
+  return labels[status] ?? "草稿";
+}
+
+function reorderCanvasNodes(
+  nodes: CanvasNode[],
+  selectedIds: string[],
+  direction: "front" | "back" | "forward" | "backward"
+) {
+  const selectedSet = new Set(selectedIds);
+  const moving = nodes.filter((node) => selectedSet.has(node.id));
+  const remaining = nodes.filter((node) => !selectedSet.has(node.id));
+  if (direction === "front") return [...remaining, ...moving];
+  if (direction === "back") return [...moving, ...remaining];
+  const next = [...nodes];
+  if (direction === "forward") {
+    for (let index = next.length - 2; index >= 0; index -= 1) {
+      if (selectedSet.has(next[index].id) && !selectedSet.has(next[index + 1].id)) {
+        [next[index], next[index + 1]] = [next[index + 1], next[index]];
+      }
+    }
+  } else {
+    for (let index = 1; index < next.length; index += 1) {
+      if (selectedSet.has(next[index].id) && !selectedSet.has(next[index - 1].id)) {
+        [next[index], next[index - 1]] = [next[index - 1], next[index]];
+      }
+    }
+  }
+  return next;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function isCanvasTypingTarget(target: EventTarget | null) {
+  return target instanceof Element && Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
 }
 
 function PersonalCenterPage(props: {

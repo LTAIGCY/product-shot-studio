@@ -88,6 +88,71 @@ describe("AppDatabase personal gallery", () => {
     expect(database.listGalleryItems("user-a")[0].mediaType).toBe("video");
   });
 
+  it("isolates, updates, duplicates, and deletes canvas projects by user", async () => {
+    const saved = await database.saveCanvasProject("user-a", {
+      title: "Canvas A",
+      width: 1080,
+      height: 1350,
+      background: "#fffaf3",
+      nodes: [
+        {
+          id: "node-a",
+          type: "text",
+          name: "Title",
+          x: 100,
+          y: 120,
+          width: 300,
+          height: 80,
+          rotation: 0,
+          opacity: 1,
+          locked: false,
+          visible: true,
+          text: "Hello",
+          fontFamily: "Arial",
+          fontSize: 48,
+          fontStyle: "bold",
+          align: "center",
+          fill: "#222222",
+          stroke: "#ffffff",
+          strokeWidth: 0,
+          shadowColor: "#000000",
+          shadowBlur: 0
+        }
+      ]
+    });
+    await database.saveCanvasProject("user-b", {
+      title: "Canvas B",
+      width: 800,
+      height: 800,
+      background: "#ffffff",
+      nodes: []
+    });
+
+    const updated = await database.saveCanvasProject("user-a", {
+      id: saved.id,
+      title: "Canvas A Updated",
+      width: 1200,
+      height: 1200,
+      background: "#eeeeee",
+      nodes: []
+    }, "C:\\thumbs\\canvas-a.png");
+    const duplicated = await database.duplicateCanvasProject("user-a", updated.id);
+
+    expect(database.listCanvasProjects("user-a")).toHaveLength(2);
+    expect(database.listCanvasProjects("user-b")).toHaveLength(1);
+    expect(database.getCanvasProject("user-a", updated.id)).toMatchObject({
+      title: "Canvas A Updated",
+      width: 1200,
+      thumbnailPath: "C:\\thumbs\\canvas-a.png"
+    });
+    expect(duplicated.id).not.toBe(updated.id);
+    expect(duplicated.title).toContain("Canvas A Updated");
+
+    await database.deleteCanvasProject("user-a", updated.id);
+    expect(database.getCanvasProject("user-a", updated.id)).toBeNull();
+    expect(database.listCanvasProjects("user-a")).toHaveLength(1);
+  });
+
   it("removes one history result and moves an empty job to trash", async () => {
     const job: ProductShotJob = {
       id: "job-delete-result",

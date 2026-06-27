@@ -3,7 +3,15 @@ import { ipcChannels } from "../shared/ipc";
 import type {
   AddPersonalGalleryItemRequest,
   AuthCredentials,
+  AuthSavedCredentials,
+  AuthSavedCredentialsInput,
   AuthSession,
+  CanvasAddRenderToGalleryRequest,
+  CanvasExportRequest,
+  CanvasExportResponse,
+  CanvasProject,
+  CanvasProjectSummary,
+  CanvasSaveRequest,
   DeleteHistoryResultRequest,
   DeleteHistoryResultResponse,
   ExportRequest,
@@ -30,6 +38,11 @@ contextBridge.exposeInMainWorld("productStudio", {
   resumeRememberedSession: (): Promise<AuthSession | null> => ipcRenderer.invoke(ipcChannels.authResumeRemembered),
   listAccounts: (): Promise<LocalAccountSummary[]> => ipcRenderer.invoke(ipcChannels.authListAccounts),
   deleteAccount: (userId: string): Promise<void> => ipcRenderer.invoke(ipcChannels.authDeleteAccount, userId),
+  getSavedAuthCredentials: (): Promise<AuthSavedCredentials | null> =>
+    ipcRenderer.invoke(ipcChannels.authGetSavedCredentials),
+  saveAuthCredentials: (input: AuthSavedCredentialsInput): Promise<void> =>
+    ipcRenderer.invoke(ipcChannels.authSaveSavedCredentials, input),
+  clearSavedAuthCredentials: (): Promise<void> => ipcRenderer.invoke(ipcChannels.authClearSavedCredentials),
   signUp: (credentials: AuthCredentials): Promise<AuthSession> =>
     ipcRenderer.invoke(ipcChannels.authSignUp, credentials),
   login: (credentials: AuthCredentials): Promise<AuthSession> =>
@@ -66,6 +79,19 @@ contextBridge.exposeInMainWorld("productStudio", {
   removeGalleryItem: (itemId: string): Promise<void> => ipcRenderer.invoke(ipcChannels.galleryRemove, itemId),
   reorderGalleryItems: (itemIds: string[]): Promise<PersonalGalleryItem[]> =>
     ipcRenderer.invoke(ipcChannels.galleryReorder, itemIds),
+  listCanvasProjects: (): Promise<CanvasProjectSummary[]> => ipcRenderer.invoke(ipcChannels.canvasListProjects),
+  getCanvasProject: (projectId: string): Promise<CanvasProject | null> =>
+    ipcRenderer.invoke(ipcChannels.canvasGetProject, projectId),
+  saveCanvasProject: (request: CanvasSaveRequest): Promise<CanvasProject> =>
+    ipcRenderer.invoke(ipcChannels.canvasSaveProject, request),
+  deleteCanvasProject: (projectId: string): Promise<void> =>
+    ipcRenderer.invoke(ipcChannels.canvasDeleteProject, projectId),
+  duplicateCanvasProject: (projectId: string): Promise<CanvasProject> =>
+    ipcRenderer.invoke(ipcChannels.canvasDuplicateProject, projectId),
+  exportCanvasImage: (request: CanvasExportRequest): Promise<CanvasExportResponse> =>
+    ipcRenderer.invoke(ipcChannels.canvasExportImage, request),
+  addCanvasRenderToGallery: (request: CanvasAddRenderToGalleryRequest): Promise<PersonalGalleryItem> =>
+    ipcRenderer.invoke(ipcChannels.canvasAddRenderToGallery, request),
   selectExportFolder: (): Promise<string> => ipcRenderer.invoke(ipcChannels.exportSelectDir),
   exportImages: (request: ExportRequest) => ipcRenderer.invoke(ipcChannels.exportImages, request),
   exportVideos: (request: ExportVideosRequest) => ipcRenderer.invoke(ipcChannels.exportVideos, request),

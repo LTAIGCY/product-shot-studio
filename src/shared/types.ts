@@ -76,6 +76,182 @@ export interface AddPersonalGalleryItemRequest {
   presetId?: PresetId;
 }
 
+export type CanvasNodeType = "image" | "text" | "shape" | "draw" | "note" | "connector" | "freehand" | "aiTask" | "aiResult";
+export type CanvasShapeType = "rect" | "circle" | "line" | "arrow";
+export type CanvasAiTaskStatus = "draft" | "ready" | "running" | "done" | "failed";
+
+export interface CanvasViewport {
+  zoom: number;
+  panX: number;
+  panY: number;
+}
+
+export interface CanvasNodeBase {
+  id: string;
+  type: CanvasNodeType;
+  name: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  opacity: number;
+  locked: boolean;
+  visible: boolean;
+  groupId?: string;
+}
+
+export interface CanvasImageNode extends CanvasNodeBase {
+  type: "image";
+  sourcePath: string;
+  naturalWidth: number;
+  naturalHeight: number;
+}
+
+export interface CanvasTextNode extends CanvasNodeBase {
+  type: "text";
+  text: string;
+  fontFamily: string;
+  fontSize: number;
+  fontStyle: "normal" | "bold";
+  align: "left" | "center" | "right";
+  fill: string;
+  stroke: string;
+  strokeWidth: number;
+  shadowColor: string;
+  shadowBlur: number;
+}
+
+export interface CanvasShapeNode extends CanvasNodeBase {
+  type: "shape";
+  shapeType: CanvasShapeType;
+  fill: string;
+  stroke: string;
+  strokeWidth: number;
+  cornerRadius: number;
+}
+
+export interface CanvasDrawNode extends CanvasNodeBase {
+  type: "draw";
+  points: number[];
+  stroke: string;
+  strokeWidth: number;
+  compositeOperation: "source-over" | "destination-out";
+}
+
+export interface CanvasFreehandNode extends CanvasNodeBase {
+  type: "freehand";
+  points: number[];
+  stroke: string;
+  strokeWidth: number;
+  compositeOperation: "source-over" | "destination-out";
+}
+
+export interface CanvasNoteNode extends CanvasNodeBase {
+  type: "note";
+  text: string;
+  fill: string;
+  stroke: string;
+  strokeWidth: number;
+  fontSize: number;
+  fontFamily: string;
+}
+
+export interface CanvasConnectorNode extends CanvasNodeBase {
+  type: "connector";
+  stroke: string;
+  strokeWidth: number;
+  dash?: number[];
+  label?: string;
+}
+
+export interface CanvasAiTaskNode extends CanvasNodeBase {
+  type: "aiTask";
+  prompt: string;
+  negativePrompt?: string;
+  status: CanvasAiTaskStatus;
+  sourceNodeIds?: string[];
+  resultNodeIds?: string[];
+}
+
+export interface CanvasAiResultNode extends CanvasNodeBase {
+  type: "aiResult";
+  sourcePath: string;
+  prompt?: string;
+  naturalWidth: number;
+  naturalHeight: number;
+}
+
+export type CanvasNode =
+  | CanvasImageNode
+  | CanvasTextNode
+  | CanvasShapeNode
+  | CanvasDrawNode
+  | CanvasFreehandNode
+  | CanvasNoteNode
+  | CanvasConnectorNode
+  | CanvasAiTaskNode
+  | CanvasAiResultNode;
+
+export interface CanvasProject {
+  id: string;
+  userId: string;
+  title: string;
+  width: number;
+  height: number;
+  background: string;
+  nodes: CanvasNode[];
+  viewport?: CanvasViewport;
+  gridEnabled?: boolean;
+  snapEnabled?: boolean;
+  selectedNodeIds?: string[];
+  thumbnailPath?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CanvasProjectSummary {
+  id: string;
+  userId: string;
+  title: string;
+  width: number;
+  height: number;
+  thumbnailPath?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CanvasSaveRequest {
+  id?: string;
+  title: string;
+  width: number;
+  height: number;
+  background: string;
+  nodes: CanvasNode[];
+  viewport?: CanvasViewport;
+  gridEnabled?: boolean;
+  snapEnabled?: boolean;
+  selectedNodeIds?: string[];
+  thumbnailDataUrl?: string;
+}
+
+export interface CanvasExportRequest {
+  dataUrl: string;
+  title: string;
+  format: ExportFormat;
+  targetDir?: string;
+}
+
+export interface CanvasExportResponse {
+  imagePath: string;
+}
+
+export interface CanvasAddRenderToGalleryRequest {
+  dataUrl: string;
+  title: string;
+  format: ExportFormat;
+}
+
 export interface DeleteHistoryResultRequest {
   jobId: string;
   mediaType: MediaType;
@@ -202,6 +378,18 @@ export interface LocalAccountSummary {
 export interface AuthCredentials {
   username: string;
   password: string;
+}
+
+export interface AuthSavedCredentials {
+  username: string;
+  password?: string;
+  rememberPassword: boolean;
+}
+
+export interface AuthSavedCredentialsInput {
+  username: string;
+  password?: string;
+  rememberPassword: boolean;
 }
 
 export interface WalletSummary {
