@@ -5,6 +5,9 @@ import { app } from "electron";
 import initSqlJs, { type Database, type SqlJsStatic } from "sql.js";
 import type {
   AddPersonalGalleryItemRequest,
+  CanvasProject,
+  CanvasProjectSummary,
+  CanvasSaveRequest,
   DeleteHistoryResultRequest,
   DeleteHistoryResultResponse,
   PersonalGalleryItem,
@@ -102,9 +105,32 @@ export class AppDatabase {
       );
       CREATE INDEX IF NOT EXISTS idx_personal_gallery_user_sort
         ON personal_gallery(user_id, sort_order ASC, created_at ASC);
+
+      CREATE TABLE IF NOT EXISTS canvas_projects (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        width INTEGER NOT NULL,
+        height INTEGER NOT NULL,
+        background TEXT NOT NULL,
+        nodes_json TEXT NOT NULL,
+        viewport_json TEXT,
+        grid_enabled INTEGER NOT NULL DEFAULT 1,
+        snap_enabled INTEGER NOT NULL DEFAULT 1,
+        selected_node_ids_json TEXT,
+        thumbnail_path TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_canvas_projects_user_updated
+        ON canvas_projects(user_id, updated_at DESC);
     `);
     await this.ensureColumn("product_jobs", "user_id", "TEXT");
     await this.ensureColumn("personal_gallery", "media_type", "TEXT NOT NULL DEFAULT 'image'");
+    await this.ensureColumn("canvas_projects", "viewport_json", "TEXT");
+    await this.ensureColumn("canvas_projects", "grid_enabled", "INTEGER NOT NULL DEFAULT 1");
+    await this.ensureColumn("canvas_projects", "snap_enabled", "INTEGER NOT NULL DEFAULT 1");
+    await this.ensureColumn("canvas_projects", "selected_node_ids_json", "TEXT");
     this.exec("CREATE INDEX IF NOT EXISTS idx_product_jobs_user_created_at ON product_jobs(user_id, created_at DESC)");
     await this.persist();
   }
@@ -281,6 +307,7 @@ export class AppDatabase {
     );
     this.requireDb().run("DELETE FROM product_jobs WHERE user_id = ?", [userId]);
     this.requireDb().run("DELETE FROM personal_gallery WHERE user_id = ?", [userId]);
+    this.requireDb().run("DELETE FROM canvas_projects WHERE user_id = ?", [userId]);
     this.requireDb().run("DELETE FROM wallet_transactions WHERE user_id = ?", [userId]);
     this.requireDb().run("DELETE FROM local_users WHERE id = ?", [userId]);
     await this.persist();
@@ -371,6 +398,117 @@ export class AppDatabase {
     });
     await this.persist();
     return this.listGalleryItems(userId);
+  }
+
+  listCanvasProjects(userId: string): CanvasProjectSummary[] {
+    const result = this.requireDb().exec(
+      `
+      SELECT id, user_id, title, width, height, thumbnail_path, created_at, updated_at
+      FROM canvas_projects
+      WHERE user_id = ?
+      ORDER BY updated_at DESC, created_at DESC
+      `,
+      [userId]
+    );
+    if (result.length === 0) return [];
+    return result[0].values.map(mapCanvasProjectSummaryRow);
+  }
+
+  getCanvasProject(userId: string, projectId: string): CanvasProject | null {
+    const result = this.requireDb().exec(
+      `
+      SELECT id, user_id, title, width, height, background, nodes_json, viewport_json, grid_enabled, snap_enabled,
+        selected_node_ids_json, thumbnail_path, created_at, updated_at
+      FROM canvas_projects
+      WHERE user_id = ? AND id = ?
+      `,
+      [userId, projectId]
+    );
+    if (result.length === 0 || result[0].values.length === 0) return null;
+    return mapCanvasProjectRow(result[0].values[0]);
+  }
+
+  async saveCanvasProject(userId: string, request: CanvasSaveRequest, thumbnailPath?: string): Promise<CanvasProject> {
+    const now = new Date().toISOString();
+    const existing = request.id ? this.getCanvasProject(userId, request.id) : null;
+    const project: CanvasProject = {
+      id: existing?.id ?? randomUUID(),
+      userId,
+      title: request.title.trim() || "未命名画布",
+      width: Math.max(320, Math.round(request.width || 1080)),
+      height: Math.max(320, Math.round(request.height || 1350)),
+      background: request.background || "#fffaf3",
+      nodes: request.nodes,
+      viewport: request.viewport,
+      gridEnabled: request.gridEnabled ?? true,
+      snapEnabled: request.snapEnabled ?? true,
+      selectedNodeIds: request.selectedNodeIds ?? [],
+      thumbnailPath: thumbnailPath ?? existing?.thumbnailPath,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now
+    };
+
+    this.requireDb().run(
+      `
+      INSERT INTO canvas_projects
+        (id, user_id, title, width, height, background, nodes_json, viewport_json, grid_enabled, snap_enabled,
+          selected_node_ids_json, thumbnail_path, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        title = excluded.title,
+        width = excluded.width,
+        height = excluded.height,
+        background = excluded.background,
+        nodes_json = excluded.nodes_json,
+        viewport_json = excluded.viewport_json,
+        grid_enabled = excluded.grid_enabled,
+        snap_enabled = excluded.snap_enabled,
+        selected_node_ids_json = excluded.selected_node_ids_json,
+        thumbnail_path = excluded.thumbnail_path,
+        updated_at = excluded.updated_at
+      `,
+      [
+        project.id,
+        project.userId,
+        project.title,
+        project.width,
+        project.height,
+        project.background,
+        JSON.stringify(project.nodes),
+        project.viewport ? JSON.stringify(project.viewport) : null,
+        project.gridEnabled ? 1 : 0,
+        project.snapEnabled ? 1 : 0,
+        JSON.stringify(project.selectedNodeIds ?? []),
+        project.thumbnailPath ?? null,
+        project.createdAt,
+        project.updatedAt
+      ]
+    );
+    await this.persist();
+    return project;
+  }
+
+  async deleteCanvasProject(userId: string, projectId: string): Promise<void> {
+    this.requireDb().run("DELETE FROM canvas_projects WHERE id = ? AND user_id = ?", [projectId, userId]);
+    await this.persist();
+  }
+
+  async duplicateCanvasProject(userId: string, projectId: string): Promise<CanvasProject> {
+    const source = this.getCanvasProject(userId, projectId);
+    if (!source) {
+      throw new Error("Canvas project not found.");
+    }
+    return this.saveCanvasProject(userId, {
+      title: `${source.title} 副本`,
+      width: source.width,
+      height: source.height,
+      background: source.background,
+      nodes: source.nodes.map((node) => ({ ...node, id: randomUUID() })),
+      viewport: source.viewport,
+      gridEnabled: source.gridEnabled,
+      snapEnabled: source.snapEnabled,
+      selectedNodeIds: []
+    }, source.thumbnailPath);
   }
 
   async addWalletTransaction(transaction: WalletTransaction): Promise<void> {
@@ -522,6 +660,40 @@ function mapGalleryRow(row: unknown[]): PersonalGalleryItem {
     presetId: row[8] ? (String(row[8]) as PersonalGalleryItem["presetId"]) : undefined,
     sortOrder: Number(row[9]),
     createdAt: String(row[10])
+  };
+}
+
+function mapCanvasProjectSummaryRow(row: unknown[]): CanvasProjectSummary {
+  return {
+    id: String(row[0]),
+    userId: String(row[1]),
+    title: String(row[2]),
+    width: Number(row[3]),
+    height: Number(row[4]),
+    thumbnailPath: row[5] ? String(row[5]) : undefined,
+    createdAt: String(row[6]),
+    updatedAt: String(row[7])
+  };
+}
+
+function mapCanvasProjectRow(row: unknown[]): CanvasProject {
+  const viewport = row[7] ? JSON.parse(String(row[7])) as CanvasProject["viewport"] : undefined;
+  const selectedNodeIds = row[10] ? JSON.parse(String(row[10])) as string[] : [];
+  return {
+    id: String(row[0]),
+    userId: String(row[1]),
+    title: String(row[2]),
+    width: Number(row[3]),
+    height: Number(row[4]),
+    background: String(row[5]),
+    nodes: JSON.parse(String(row[6])) as CanvasProject["nodes"],
+    viewport,
+    gridEnabled: row[8] === undefined ? true : Boolean(Number(row[8])),
+    snapEnabled: row[9] === undefined ? true : Boolean(Number(row[9])),
+    selectedNodeIds,
+    thumbnailPath: row[11] ? String(row[11]) : undefined,
+    createdAt: String(row[12]),
+    updatedAt: String(row[13])
   };
 }
 

@@ -3,7 +3,15 @@
 import type {
   AddPersonalGalleryItemRequest,
   AuthCredentials,
+  AuthSavedCredentials,
+  AuthSavedCredentialsInput,
   AuthSession,
+  CanvasAddRenderToGalleryRequest,
+  CanvasExportRequest,
+  CanvasExportResponse,
+  CanvasProject,
+  CanvasProjectSummary,
+  CanvasSaveRequest,
   DeleteHistoryResultRequest,
   DeleteHistoryResultResponse,
   ExportRequest,
@@ -44,6 +52,9 @@ declare global {
       resumeRememberedSession(): Promise<AuthSession | null>;
       listAccounts(): Promise<LocalAccountSummary[]>;
       deleteAccount(userId: string): Promise<void>;
+      getSavedAuthCredentials(): Promise<AuthSavedCredentials | null>;
+      saveAuthCredentials(input: AuthSavedCredentialsInput): Promise<void>;
+      clearSavedAuthCredentials(): Promise<void>;
       signUp(credentials: AuthCredentials): Promise<AuthSession>;
       login(credentials: AuthCredentials): Promise<AuthSession>;
       logout(): Promise<void>;
@@ -72,6 +83,13 @@ declare global {
       addGalleryItem(request: AddPersonalGalleryItemRequest): Promise<PersonalGalleryItem>;
       removeGalleryItem(itemId: string): Promise<void>;
       reorderGalleryItems(itemIds: string[]): Promise<PersonalGalleryItem[]>;
+      listCanvasProjects(): Promise<CanvasProjectSummary[]>;
+      getCanvasProject(projectId: string): Promise<CanvasProject | null>;
+      saveCanvasProject(request: CanvasSaveRequest): Promise<CanvasProject>;
+      deleteCanvasProject(projectId: string): Promise<void>;
+      duplicateCanvasProject(projectId: string): Promise<CanvasProject>;
+      exportCanvasImage(request: CanvasExportRequest): Promise<CanvasExportResponse>;
+      addCanvasRenderToGallery(request: CanvasAddRenderToGalleryRequest): Promise<PersonalGalleryItem>;
       selectExportFolder(): Promise<string>;
       exportImages(request: ExportRequest): Promise<ExportResponse>;
       exportVideos(request: ExportVideosRequest): Promise<ExportResponse>;
