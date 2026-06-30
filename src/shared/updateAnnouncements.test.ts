@@ -22,10 +22,10 @@ describe("update announcements", () => {
   it("keeps the latest announcement aligned with the required update record format", () => {
     const latest = updateAnnouncements[0];
 
-    expect(latest.version).toBe("0.3.4");
-    expect(latest.publishedAt).toBe("2026-06-18 12:14:50");
+    expect(latest.version).toBe("0.3.5");
+    expect(latest.publishedAt).toBe("2026-06-28 16:32:33");
     expect(latest.sections.map((section) => section.heading)).toEqual(
-      expect.arrayContaining(["功能新增", "问题修复", "验证结果"])
+      expect.arrayContaining(["云端服务", "桌面端连接", "验证结果"])
     );
   });
 });
