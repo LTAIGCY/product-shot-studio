@@ -14,6 +14,50 @@ export interface UpdateAnnouncement {
 
 export const updateAnnouncements: UpdateAnnouncement[] = [
   {
+    id: "2026-06-28-cloud-backend-https",
+    version: "0.3.5",
+    title: "云端账本与 HTTPS 正式接入",
+    publishedAt: "2026-06-28 16:32:33",
+    summary:
+      "Product Shot Studio 后端账本已迁移到腾讯云轻量应用服务器，并通过专用域名和 HTTPS 对外提供服务。桌面软件现在默认连接统一云端账本，用户账号、积分、充值记录、扣费记录与在线状态不再依赖某一台开发电脑持续开机；同时新增与备案信息一致的轻拍图片设计作品展示官网。",
+    sections: [
+      {
+        heading: "云端服务",
+        items: [
+          "正式后端地址更新为 https://api.qingpaiai.com，健康检查、用户接口和监测后台均通过加密连接访问。",
+          "腾讯云服务器使用 Nginx 反向代理后端服务，公网只开放标准 HTTP/HTTPS 端口，账本进程继续仅监听服务器本机的 127.0.0.1:4317。",
+          "HTTP 请求会自动跳转到 HTTPS，Let's Encrypt 证书已启用系统定时续期，降低证书过期造成服务中断的风险。"
+        ]
+      },
+      {
+        heading: "桌面端连接",
+        items: [
+          "桌面软件的默认后端地址由本机 127.0.0.1:4317 改为 https://api.qingpaiai.com，开发版和后续打包版无需额外设置即可连接云端账本。",
+          "Electron 主进程的账本请求改用 Chromium 网络层，修复部分 Windows 环境访问云端 HTTPS 时连接被重置、注册和登录误报本地服务未启动的问题。",
+          "保留 PRODUCT_STUDIO_BACKEND_URL 和 PRODUCT_SHOT_BACKEND_URL 环境变量覆盖能力，方便开发者连接测试服务器或其他环境。",
+          "开发命令 npm run dev 和 npm run dev:all 默认连接云端；需要同时启动本地账本进行隔离调试时，改用 npm run dev:local。"
+        ]
+      },
+      {
+        heading: "轻拍官网",
+        items: [
+          "新增 qingpaiai.com 静态作品展示站源码，网站名称、服务内容和个人软件作品定位与当前备案申请信息保持一致。",
+          "官网包含软件介绍、真实界面展示、使用流程、网站说明、使用说明和联系邮箱，不包含充值、交易、论坛或其他与当前备案内容不一致的公开功能。",
+          "补充独立 Nginx 配置和部署文档，官网与 api.qingpaiai.com 后端服务互不覆盖；备案通过后可继续配置公网 HTTPS。"
+        ]
+      },
+      {
+        heading: "验证结果",
+        items: [
+          "已验证 api.qingpaiai.com DNS 解析到当前服务器公网 IP，公网 443 端口可访问。",
+          "已验证 HTTPS 健康检查返回 200 和有效服务状态，HTTP 到 HTTPS 的 301 跳转正常。",
+          "登录页、账号安全说明和常见问题已统一改为云端账本表述，避免继续提示用户启动已不再必需的本地服务。",
+          "新增后端地址配置自动测试，覆盖正式默认地址、当前环境变量覆盖、旧环境变量兼容和优先级规则。"
+        ]
+      }
+    ]
+  },
+  {
     id: "2026-06-18-config-panel-toast-delete-dialog-redesign",
     version: "0.3.4",
     title: "生成配置面板、导出提示与删除确认重做",

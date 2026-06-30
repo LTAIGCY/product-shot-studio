@@ -351,7 +351,7 @@ const uiText = {
   works: "\u53ef\u7528",
   validationFailed: "\u9a8c\u8bc1\u5931\u8d25",
   localKeysOnly: "\u5bc6\u94a5\u4ec5\u4fdd\u5b58\u5728\u672c\u673a\u3002",
-  accountLogin: "\u672c\u5730\u8d26\u53f7\u767b\u5f55",
+  accountLogin: "\u4e91\u7aef\u8d26\u53f7\u767b\u5f55",
   personalCenter: "\u4e2a\u4eba\u4e2d\u5fc3",
   previewImage: "\u56fe\u7247\u9884\u89c8",
   zoomIn: "\u653e\u5927",
@@ -417,7 +417,7 @@ const uiText = {
   logout: "\u9000\u51fa",
   username: "\u8d26\u53f7",
   password: "\u5bc6\u7801",
-  localAccountOnly: "\u8d26\u53f7\u548c\u5bc6\u7801\u4fdd\u5b58\u5728\u672c\u5730\u8d26\u672c\u670d\u52a1\uff0c\u5bc6\u7801\u53ea\u4fdd\u5b58\u52a0\u76d0\u54c8\u5e0c\u3002",
+  localAccountOnly: "\u8d26\u53f7\u6570\u636e\u5b89\u5168\u4fdd\u5b58\u5728\u4e91\u7aef\u8d26\u672c\u670d\u52a1\uff0c\u5bc6\u7801\u53ea\u4fdd\u5b58\u52a0\u76d0\u54c8\u5e0c\u3002",
   walletBalance: "\u5269\u4f59\u79ef\u5206",
   walletUsed: "\u5df2\u7528",
   insufficientBalance: "\u4f59\u989d\u4e0d\u8db3\uff0c\u8bf7\u5148\u5145\u503c",
@@ -3763,7 +3763,7 @@ function AuthScreen(props: {
           <div className="auth-title-block">
             <span>{uiText.accountLogin}</span>
             <h1>{mode === "login" ? "欢迎回来" : "创建新账号"}<Sparkles size={26} /></h1>
-            <p>{mode === "login" ? "继续创建专业商拍作品。" : "创建本地账号后即可继续使用商拍工作台。"}</p>
+            <p>{mode === "login" ? "继续创建专业商拍作品。" : "创建云端账号后即可继续使用商拍工作台。"}</p>
           </div>
 
           <div className="auth-form-card">
@@ -3836,10 +3836,10 @@ function AuthScreen(props: {
           <div className="auth-feature-strip" aria-hidden="true">
             <span><ImagePlus size={20} /> 专业商拍质量</span>
             <span><Sparkles size={20} /> AI 增强工作流</span>
-            <span><KeyRound size={20} /> 本地账号安全</span>
+            <span><KeyRound size={20} /> 云端账号安全</span>
           </div>
 
-          <footer className="auth-footer">© Product Shot Studio · Local account workspace</footer>
+          <footer className="auth-footer">© Product Shot Studio · Secure cloud workspace</footer>
         </div>
       </section>
     </div>
@@ -4070,7 +4070,7 @@ function TutorialDialog(props: { onClose: () => void }) {
     },
     {
       question: "后端服务未连接怎么办？",
-      answer: "开发模式下请先在项目目录运行本地账本服务，或直接运行 npm.cmd run dev:all。软件关闭不应影响独立启动的后端；如果后台也关闭了，请重新启动 server 服务。"
+      answer: "软件默认连接 https://api.qingpaiai.com 云端账本。请先检查网络，并在浏览器访问该地址的 /health 页面；开发者只有在进行本地隔离调试时才需要运行 npm.cmd run dev:local。"
     },
     {
       question: "如何直接使用已经生成的图片进行对比？",

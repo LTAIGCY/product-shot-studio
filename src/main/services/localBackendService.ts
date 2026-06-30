@@ -4,6 +4,7 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import { app } from "electron";
+import { getExplicitBackendUrl, resolveBackendUrl } from "./backendConfig";
 
 interface StoredBackendSecret {
   tokenSecret: string;
@@ -17,9 +18,9 @@ export class LocalBackendService {
   private readonly dbPath: string;
 
   constructor(private readonly userDataPath: string) {
-    const externalUrl = process.env.PRODUCT_STUDIO_BACKEND_URL ?? process.env.PRODUCT_SHOT_BACKEND_URL;
-    this.baseUrl = (externalUrl ?? "http://127.0.0.1:4317").replace(/\/+$/, "");
-    this.shouldManageLocalBackend = !externalUrl;
+    const explicitUrl = getExplicitBackendUrl();
+    this.baseUrl = resolveBackendUrl();
+    this.shouldManageLocalBackend = !explicitUrl && isLoopbackUrl(this.baseUrl);
     this.secretPath = path.join(userDataPath, "local-backend-secret.json");
     this.dbPath = path.join(userDataPath, "ledger", "product-shot-studio.db");
   }
@@ -121,4 +122,13 @@ export class LocalBackendService {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isLoopbackUrl(url: string): boolean {
+  try {
+    const hostname = new URL(url).hostname;
+    return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1";
+  } catch {
+    return false;
+  }
 }

@@ -12,6 +12,7 @@ import type {
   WalletSummary,
   WalletTransaction
 } from "../../shared/types";
+import { resolveBackendUrl } from "./backendConfig";
 
 interface AuthResponse {
   token: string;
@@ -75,16 +76,24 @@ export interface ReserveUsageInput {
   note?: string;
 }
 
+export type BackendFetch = (input: string, init?: RequestInit) => Promise<Response>;
+
 export class BackendClient {
   private currentSession: StoredSession | null = null;
   private readonly baseUrl: string;
   private readonly sessionPath: string;
   private readonly accountsPath: string;
+  private readonly fetchImpl: BackendFetch;
 
-  constructor(userDataPath: string, baseUrl = getDefaultBackendUrl()) {
+  constructor(
+    userDataPath: string,
+    baseUrl = resolveBackendUrl(),
+    fetchImpl: BackendFetch = (input, init) => globalThis.fetch(input, init)
+  ) {
     this.baseUrl = baseUrl.replace(/\/+$/, "");
     this.sessionPath = path.join(userDataPath, "backend-session.json");
     this.accountsPath = path.join(userDataPath, "backend-accounts.json");
+    this.fetchImpl = fetchImpl;
   }
 
   getBackendUrl(): string {
@@ -267,13 +276,13 @@ export class BackendClient {
 
     let response: Response;
     try {
-      response = await fetch(`${this.baseUrl}${endpoint}`, {
+      response = await this.fetchImpl(`${this.baseUrl}${endpoint}`, {
         method: options.method,
         headers,
         body: options.body === undefined ? undefined : JSON.stringify(options.body)
       });
     } catch {
-      throw new Error("后端服务未连接，请先启动本地账本服务。");
+      throw new Error("无法连接云端账本服务，请检查网络连接后重试。");
     }
 
     const text = await response.text();
@@ -335,10 +344,6 @@ export class BackendClient {
   }
 }
 
-function getDefaultBackendUrl(): string {
-  return process.env.PRODUCT_STUDIO_BACKEND_URL ?? process.env.PRODUCT_SHOT_BACKEND_URL ?? "http://127.0.0.1:4317";
-}
-
 function mapWallet(wallet: BackendWallet): WalletSummary {
   return {
     userId: wallet.userId,
@@ -375,8 +380,8 @@ function safeParseJson(text: string): unknown {
 }
 
 function translateBackendError(message: string): string {
-  if (/ECONNREFUSED|fetch failed|network/i.test(message)) {
-    return "后端服务未连接，请先启动本地账本服务。";
+  if (/ECONNREFUSED|ECONNRESET|fetch failed|network/i.test(message)) {
+    return "无法连接云端账本服务，请检查网络连接后重试。";
   }
   if (/not enough|insufficient|balance/i.test(message)) {
     return "积分余额不足，请先充值或降低生成数量/质量。";

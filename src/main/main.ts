@@ -70,7 +70,9 @@ async function bootstrap(): Promise<void> {
   await database.init();
   localBackendService = new LocalBackendService(userDataPath);
   await localBackendService.start();
-  backendClient = new BackendClient(userDataPath, localBackendService.getBaseUrl());
+  backendClient = new BackendClient(userDataPath, localBackendService.getBaseUrl(), (input, init) =>
+    net.fetch(input, init)
+  );
   accountService = new AccountService(backendClient);
   authCredentialStore = new AuthCredentialStore(userDataPath);
   billingService = new BillingService(backendClient);
