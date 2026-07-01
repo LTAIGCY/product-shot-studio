@@ -9,10 +9,15 @@ Every image provider implements the same runtime contract:
 
 The app keeps provider models in configuration so model IDs can be updated without touching UI code.
 
-## Default Models
+## Current Providers and Default Models
 
-- OpenAI: `gpt-image-2`
-- Google: `gemini-3.1-flash-image`
-- Stability: `stable-image-control-structure`
+- Alibaba Model Studio: `qwen-image-edit`
+- Volcengine Ark: `doubao-seedream-5-0-260128`
+- Tencent Hunyuan: `hunyuan-image-rapid`
 
-The Stability adapter targets the REST v2beta image-to-image style endpoint because the MVP starts from a product reference photo.
+Provider IDs, model catalogs, API key documentation links, and terms links live in
+`src/shared/providers.ts`. Video model metadata lives in `src/shared/videoModels.ts`.
+The UI must consume these shared catalogs instead of duplicating model IDs.
+
+Provider API keys remain in local secure storage. They must never be written to the
+cloud ledger, source control, application logs, or error reports.

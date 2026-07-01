@@ -2,6 +2,16 @@
 
 Product Shot Studio 是一个 Windows 桌面端 AI 商拍图工作流软件。当前版本支持图片生成、视频生成、个人中心、积分账本、历史记录、导出、更新公告，以及本地优先的后端监测后台。
 
+## 项目文档
+
+- [项目上下文与当前状态](PROJECT_CONTEXT.md)
+- [系统架构](docs/ARCHITECTURE.md)
+- [部署与运维](docs/OPERATIONS.md)
+- [产品路线图](docs/ROADMAP.md)
+- [重要决策](docs/DECISIONS.md)
+- [协作与 PR 规范](CONTRIBUTING.md)
+- [版本更新记录](RELEASE_NOTES.md)
+
 ## 当前结构
 
 - 桌面端：Electron + React + TypeScript。
@@ -63,9 +73,9 @@ npm.cmd run package:win
 outputs/package/win-unpacked/Product Shot Studio.exe
 ```
 
-## 后端与数据库是否已经完成
+## 后端与数据库状态
 
-当前完成的是本地 MVP 版：
+当前已经部署云端 MVP：
 
 - 用户注册、登录、唯一账号 ID，以及允许重复的账号名。
 - 密码哈希存储，不存明文密码。
@@ -74,12 +84,12 @@ outputs/package/win-unpacked/Product Shot Studio.exe
 - 浏览器监测后台。
 - 用户在线/离线状态。
 
-还没有完成的是正式商业生产版：
+正式商业生产版仍需完成：
 
 - 真实微信支付。
-- 云端正式部署。
-- 公网域名、HTTPS、鉴权加固。
-- 托管数据库和自动备份。
+- SQLite 自动备份和恢复演练，后续迁移托管数据库。
+- 支付回调验签、订单幂等、退款和对账。
+- 完整监控、告警、日志轮转和自动部署。
 - 把模型调用迁到后端代理，形成强约束扣费。
 
 ## 朋友能不能登录到你的后端
@@ -112,6 +122,6 @@ npm.cmd run build
 npm.cmd run ensure:electron
 ```
 
-## 后期部署建议
+## 生产运维
 
-第一阶段继续本地开发。后期可以把后端服务部署到 AutoDL 或普通云服务器，但正式账本数据库建议使用托管 PostgreSQL/MySQL，或者至少配置自动备份。AutoDL 更适合测试和临时部署，重要账本数据不要只依赖单实例本地盘。
+云端 API 已部署为独立 systemd 服务，并通过 Nginx 和 HTTPS 对外提供。服务器更新、SQLite 备份、恢复、监控和故障处理见 [部署与运维](docs/OPERATIONS.md)。生产服务器只部署已合并到 `main` 的提交。
