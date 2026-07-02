@@ -109,11 +109,15 @@ export class AppDatabase {
       CREATE TABLE IF NOT EXISTS canvas_projects (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
+        canvas_kind TEXT NOT NULL DEFAULT 'personal',
         title TEXT NOT NULL,
         width INTEGER NOT NULL,
         height INTEGER NOT NULL,
         background TEXT NOT NULL,
         nodes_json TEXT NOT NULL,
+        workflow_nodes_json TEXT,
+        workflow_edges_json TEXT,
+        workflow_queue_json TEXT,
         viewport_json TEXT,
         grid_enabled INTEGER NOT NULL DEFAULT 1,
         snap_enabled INTEGER NOT NULL DEFAULT 1,
@@ -127,6 +131,10 @@ export class AppDatabase {
     `);
     await this.ensureColumn("product_jobs", "user_id", "TEXT");
     await this.ensureColumn("personal_gallery", "media_type", "TEXT NOT NULL DEFAULT 'image'");
+    await this.ensureColumn("canvas_projects", "canvas_kind", "TEXT NOT NULL DEFAULT 'personal'");
+    await this.ensureColumn("canvas_projects", "workflow_nodes_json", "TEXT");
+    await this.ensureColumn("canvas_projects", "workflow_edges_json", "TEXT");
+    await this.ensureColumn("canvas_projects", "workflow_queue_json", "TEXT");
     await this.ensureColumn("canvas_projects", "viewport_json", "TEXT");
     await this.ensureColumn("canvas_projects", "grid_enabled", "INTEGER NOT NULL DEFAULT 1");
     await this.ensureColumn("canvas_projects", "snap_enabled", "INTEGER NOT NULL DEFAULT 1");
@@ -403,7 +411,7 @@ export class AppDatabase {
   listCanvasProjects(userId: string): CanvasProjectSummary[] {
     const result = this.requireDb().exec(
       `
-      SELECT id, user_id, title, width, height, thumbnail_path, created_at, updated_at
+      SELECT id, user_id, canvas_kind, title, width, height, thumbnail_path, created_at, updated_at
       FROM canvas_projects
       WHERE user_id = ?
       ORDER BY updated_at DESC, created_at DESC
@@ -417,7 +425,8 @@ export class AppDatabase {
   getCanvasProject(userId: string, projectId: string): CanvasProject | null {
     const result = this.requireDb().exec(
       `
-      SELECT id, user_id, title, width, height, background, nodes_json, viewport_json, grid_enabled, snap_enabled,
+      SELECT id, user_id, canvas_kind, title, width, height, background, nodes_json, workflow_nodes_json,
+        workflow_edges_json, workflow_queue_json, viewport_json, grid_enabled, snap_enabled,
         selected_node_ids_json, thumbnail_path, created_at, updated_at
       FROM canvas_projects
       WHERE user_id = ? AND id = ?
@@ -434,11 +443,15 @@ export class AppDatabase {
     const project: CanvasProject = {
       id: existing?.id ?? randomUUID(),
       userId,
+      canvasKind: request.canvasKind ?? existing?.canvasKind ?? "personal",
       title: request.title.trim() || "未命名画布",
       width: Math.max(320, Math.round(request.width || 1080)),
       height: Math.max(320, Math.round(request.height || 1350)),
       background: request.background || "#fffaf3",
       nodes: request.nodes,
+      workflowNodes: request.workflowNodes ?? [],
+      workflowEdges: request.workflowEdges ?? [],
+      workflowQueue: request.workflowQueue ?? [],
       viewport: request.viewport,
       gridEnabled: request.gridEnabled ?? true,
       snapEnabled: request.snapEnabled ?? true,
@@ -451,15 +464,20 @@ export class AppDatabase {
     this.requireDb().run(
       `
       INSERT INTO canvas_projects
-        (id, user_id, title, width, height, background, nodes_json, viewport_json, grid_enabled, snap_enabled,
+        (id, user_id, canvas_kind, title, width, height, background, nodes_json, workflow_nodes_json,
+          workflow_edges_json, workflow_queue_json, viewport_json, grid_enabled, snap_enabled,
           selected_node_ids_json, thumbnail_path, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
+        canvas_kind = excluded.canvas_kind,
         title = excluded.title,
         width = excluded.width,
         height = excluded.height,
         background = excluded.background,
         nodes_json = excluded.nodes_json,
+        workflow_nodes_json = excluded.workflow_nodes_json,
+        workflow_edges_json = excluded.workflow_edges_json,
+        workflow_queue_json = excluded.workflow_queue_json,
         viewport_json = excluded.viewport_json,
         grid_enabled = excluded.grid_enabled,
         snap_enabled = excluded.snap_enabled,
@@ -470,11 +488,15 @@ export class AppDatabase {
       [
         project.id,
         project.userId,
+        project.canvasKind,
         project.title,
         project.width,
         project.height,
         project.background,
         JSON.stringify(project.nodes),
+        JSON.stringify(project.workflowNodes ?? []),
+        JSON.stringify(project.workflowEdges ?? []),
+        JSON.stringify(project.workflowQueue ?? []),
         project.viewport ? JSON.stringify(project.viewport) : null,
         project.gridEnabled ? 1 : 0,
         project.snapEnabled ? 1 : 0,
@@ -500,10 +522,14 @@ export class AppDatabase {
     }
     return this.saveCanvasProject(userId, {
       title: `${source.title} 副本`,
+      canvasKind: source.canvasKind,
       width: source.width,
       height: source.height,
       background: source.background,
       nodes: source.nodes.map((node) => ({ ...node, id: randomUUID() })),
+      workflowNodes: source.workflowNodes?.map((node) => ({ ...node, id: randomUUID() })),
+      workflowEdges: [],
+      workflowQueue: [],
       viewport: source.viewport,
       gridEnabled: source.gridEnabled,
       snapEnabled: source.snapEnabled,
@@ -667,33 +693,38 @@ function mapCanvasProjectSummaryRow(row: unknown[]): CanvasProjectSummary {
   return {
     id: String(row[0]),
     userId: String(row[1]),
-    title: String(row[2]),
-    width: Number(row[3]),
-    height: Number(row[4]),
-    thumbnailPath: row[5] ? String(row[5]) : undefined,
-    createdAt: String(row[6]),
-    updatedAt: String(row[7])
+    canvasKind: row[2] === "infinite" ? "infinite" : "personal",
+    title: String(row[3]),
+    width: Number(row[4]),
+    height: Number(row[5]),
+    thumbnailPath: row[6] ? String(row[6]) : undefined,
+    createdAt: String(row[7]),
+    updatedAt: String(row[8])
   };
 }
 
 function mapCanvasProjectRow(row: unknown[]): CanvasProject {
-  const viewport = row[7] ? JSON.parse(String(row[7])) as CanvasProject["viewport"] : undefined;
-  const selectedNodeIds = row[10] ? JSON.parse(String(row[10])) as string[] : [];
+  const viewport = row[11] ? JSON.parse(String(row[11])) as CanvasProject["viewport"] : undefined;
+  const selectedNodeIds = row[14] ? JSON.parse(String(row[14])) as string[] : [];
   return {
     id: String(row[0]),
     userId: String(row[1]),
-    title: String(row[2]),
-    width: Number(row[3]),
-    height: Number(row[4]),
-    background: String(row[5]),
-    nodes: JSON.parse(String(row[6])) as CanvasProject["nodes"],
+    canvasKind: row[2] === "infinite" ? "infinite" : "personal",
+    title: String(row[3]),
+    width: Number(row[4]),
+    height: Number(row[5]),
+    background: String(row[6]),
+    nodes: JSON.parse(String(row[7])) as CanvasProject["nodes"],
+    workflowNodes: row[8] ? JSON.parse(String(row[8])) as CanvasProject["workflowNodes"] : [],
+    workflowEdges: row[9] ? JSON.parse(String(row[9])) as CanvasProject["workflowEdges"] : [],
+    workflowQueue: row[10] ? JSON.parse(String(row[10])) as CanvasProject["workflowQueue"] : [],
     viewport,
-    gridEnabled: row[8] === undefined ? true : Boolean(Number(row[8])),
-    snapEnabled: row[9] === undefined ? true : Boolean(Number(row[9])),
+    gridEnabled: row[12] === undefined ? true : Boolean(Number(row[12])),
+    snapEnabled: row[13] === undefined ? true : Boolean(Number(row[13])),
     selectedNodeIds,
-    thumbnailPath: row[11] ? String(row[11]) : undefined,
-    createdAt: String(row[12]),
-    updatedAt: String(row[13])
+    thumbnailPath: row[15] ? String(row[15]) : undefined,
+    createdAt: String(row[16]),
+    updatedAt: String(row[17])
   };
 }
 

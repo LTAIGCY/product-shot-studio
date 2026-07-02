@@ -17,6 +17,8 @@ import type {
   ExportRequest,
   ExportResponse,
   ExportVideosRequest,
+  FeedbackSubmitReceipt,
+  FeedbackSubmitRequest,
   GenerateProgress,
   ImportedImage,
   LocalAccountSummary,
@@ -58,6 +60,7 @@ declare global {
       signUp(credentials: AuthCredentials): Promise<AuthSession>;
       login(credentials: AuthCredentials): Promise<AuthSession>;
       logout(): Promise<void>;
+      submitFeedback(request: FeedbackSubmitRequest): Promise<FeedbackSubmitReceipt>;
       getWallet(): Promise<WalletSummary>;
       recharge(request: RechargeRequest): Promise<RechargeReceipt>;
       listWalletTransactions(limit?: number): Promise<WalletTransaction[]>;

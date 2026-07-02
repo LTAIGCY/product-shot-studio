@@ -61,9 +61,11 @@ export function renderAdminHtml(): string {
     table { width: 100%; border-collapse: collapse; font-size: 14px; }
     .table-scroll { overflow: auto; }
     .users-table { min-width: 1460px; }
+    .feedback-table { min-width: 1180px; }
     th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
     th { color: var(--muted); font-weight: 700; white-space: nowrap; }
     td { word-break: break-word; }
+    .feedback-message { max-width: 420px; white-space: pre-wrap; }
     .status-failed { color: var(--danger); font-weight: 700; }
     .admin-meta { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; color: var(--muted); }
     .live-pill, .badge {
@@ -154,6 +156,16 @@ export function renderAdminHtml(): string {
       </div>
       <div class="layout-wide">
         <div class="panel">
+          <h2>用户反馈</h2>
+          <p class="hint">展示最近提交的设置页意见反馈，包含账号、联系方式、客户端版本和 IP。</p>
+          <div class="table-scroll">
+            <table class="feedback-table">
+              <thead><tr><th>时间</th><th>账号 ID</th><th>账号名</th><th>联系方式</th><th>反馈内容</th><th>IP</th><th>版本</th></tr></thead>
+              <tbody id="feedback"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel">
           <h2>实时审计事件</h2>
           <table><thead><tr><th>时间</th><th>账号</th><th>动作</th><th>IP</th><th>详情</th></tr></thead><tbody id="auditEvents"></tbody></table>
         </div>
@@ -209,12 +221,13 @@ export function renderAdminHtml(): string {
 
     async function load() {
       try {
-        const [overview, users, jobs, recharges, auditEvents] = await Promise.all([
+        const [overview, users, jobs, recharges, auditEvents, feedback] = await Promise.all([
           api("/admin/overview"),
           api("/admin/users"),
           api("/admin/jobs?status=failed&limit=12"),
           api("/admin/recharges?limit=12"),
-          api("/admin/audit-events?limit=16")
+          api("/admin/audit-events?limit=16"),
+          api("/admin/feedback?limit=20")
         ]);
         $("message").textContent = "";
         setLiveStatus(true);
@@ -230,6 +243,7 @@ export function renderAdminHtml(): string {
         $("failedJobs").innerHTML = jobs.items.map((job) => "<tr><td>" + text(job.username || "-") + "</td><td>" + text(job.modelId || "-") + "</td><td class='status-failed'>" + text(job.errorMessage || "-") + "</td><td>" + date(job.createdAt) + "</td></tr>").join("");
         $("recharges").innerHTML = recharges.items.map((tx) => "<tr><td>" + text(tx.username || "-") + "</td><td>" + fmt(tx.amountPoints) + "</td><td>" + text(tx.modelId || "-") + "</td><td>" + date(tx.createdAt) + "</td></tr>").join("");
         $("usage").innerHTML = overview.recentUsage.map((tx) => "<tr><td>" + text(tx.username || "-") + "</td><td>" + fmt(Math.abs(tx.amountPoints)) + "</td><td>" + text(tx.modelId || "-") + "</td><td>" + date(tx.createdAt) + "</td></tr>").join("");
+        $("feedback").innerHTML = feedback.items.map(renderFeedback).join("");
         $("auditEvents").innerHTML = auditEvents.items.map((event) => "<tr><td>" + date(event.createdAt) + "</td><td>" + text(event.username || "-") + "</td><td>" + text(actionLabel(event.action)) + "</td><td>" + text(event.ip || "-") + "</td><td>" + text(metadataText(event.metadata)) + "</td></tr>").join("");
       } catch (error) {
         setLiveStatus(false);
@@ -251,6 +265,18 @@ export function renderAdminHtml(): string {
         "<td>" + fmt(user.wallet.totalRechargedPoints) + " / " + fmt(user.wallet.totalUsedPoints) + "</td>" +
         "<td>" + accountBadge(user.status) + "</td>" +
         "<td><button class='mini-button secondary' data-reset-password='" + text(user.id) + "' data-account-id='" + text(user.accountId) + "'>重置密码</button></td>" +
+        "</tr>";
+    }
+
+    function renderFeedback(item) {
+      return "<tr>" +
+        "<td>" + date(item.createdAt) + "</td>" +
+        "<td><strong>" + text(item.accountId || "-") + "</strong></td>" +
+        "<td>" + text(item.username || "-") + "</td>" +
+        "<td>" + text(item.contact || "-") + "</td>" +
+        "<td class='feedback-message'>" + text(item.message || "-") + "</td>" +
+        "<td>" + text(item.ip || "-") + "</td>" +
+        "<td>" + text(item.appVersion || "-") + "</td>" +
         "</tr>";
     }
 
@@ -290,6 +316,7 @@ export function renderAdminHtml(): string {
         "usage.reserve": "生成预扣",
         "usage.commit": "成功扣费",
         "usage.cancel": "取消/失败释放",
+        "user.feedback_submit": "用户提交反馈",
         "admin.login": "管理员登录",
         "admin.login_failed": "后台登录失败",
         "admin.adjust_points": "管理员调分",
