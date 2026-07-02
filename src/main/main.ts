@@ -12,6 +12,7 @@ import type {
   DeleteHistoryResultRequest,
   ExportRequest,
   ExportVideosRequest,
+  FeedbackSubmitRequest,
   ProductShotRequest,
   ProviderId,
   SaveEditedImageRequest,
@@ -194,6 +195,13 @@ function registerIpc(): void {
     await accountService.logout();
     stopPresenceHeartbeat();
   });
+  ipcMain.handle(ipcChannels.feedbackSubmit, (_event, request: FeedbackSubmitRequest) =>
+    backendClient.submitFeedback({
+      ...request,
+      appVersion: app.getVersion(),
+      userAgent: `Product Shot Studio/${app.getVersion()} (${process.platform}; Electron ${process.versions.electron})`
+    })
+  );
   ipcMain.handle(ipcChannels.billingGetWallet, () => billingService.getWalletSummary());
   ipcMain.handle(ipcChannels.billingRecharge, (_event, request) => billingService.recharge(request));
   ipcMain.handle(ipcChannels.billingListTransactions, (_event, limit?: number) =>

@@ -16,6 +16,8 @@ import type {
   DeleteHistoryResultResponse,
   ExportRequest,
   ExportVideosRequest,
+  FeedbackSubmitReceipt,
+  FeedbackSubmitRequest,
   RechargeReceipt,
   RechargeRequest,
   GenerateProgress,
@@ -48,6 +50,8 @@ contextBridge.exposeInMainWorld("productStudio", {
   login: (credentials: AuthCredentials): Promise<AuthSession> =>
     ipcRenderer.invoke(ipcChannels.authLogin, credentials),
   logout: (): Promise<void> => ipcRenderer.invoke(ipcChannels.authLogout),
+  submitFeedback: (request: FeedbackSubmitRequest): Promise<FeedbackSubmitReceipt> =>
+    ipcRenderer.invoke(ipcChannels.feedbackSubmit, request),
   getWallet: (): Promise<WalletSummary> => ipcRenderer.invoke(ipcChannels.billingGetWallet),
   recharge: (request: RechargeRequest): Promise<RechargeReceipt> =>
     ipcRenderer.invoke(ipcChannels.billingRecharge, request),

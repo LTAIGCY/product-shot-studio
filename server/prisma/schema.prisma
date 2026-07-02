@@ -25,6 +25,7 @@ model User {
   jobs              GenerationJob[]
   reservations      UsageReservation[]
   auditEvents       AuditEvent[]
+  feedbacks         UserFeedback[]
 
   @@index([username])
   @@map("users")
@@ -112,4 +113,20 @@ model AuditEvent {
   @@index([userId, createdAt])
   @@index([action, createdAt])
   @@map("audit_events")
+}
+
+model UserFeedback {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  message     String
+  contact     String?
+  appVersion  String?  @map("app_version")
+  userAgent   String?  @map("user_agent")
+  ip          String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([createdAt])
+  @@map("user_feedback")
 }

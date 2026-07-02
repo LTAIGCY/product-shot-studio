@@ -88,6 +88,17 @@ const statements = [
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT audit_events_user_id_fkey FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL ON UPDATE CASCADE
   )`,
+  `CREATE TABLE IF NOT EXISTS user_feedback (
+    id TEXT PRIMARY KEY NOT NULL,
+    user_id TEXT NOT NULL,
+    message TEXT NOT NULL,
+    contact TEXT,
+    app_version TEXT,
+    user_agent TEXT,
+    ip TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT user_feedback_user_id_fkey FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
   `CREATE INDEX IF NOT EXISTS wallet_transactions_user_id_created_at_idx ON wallet_transactions (user_id, created_at)`,
   `CREATE INDEX IF NOT EXISTS wallet_transactions_type_created_at_idx ON wallet_transactions (type, created_at)`,
   `CREATE INDEX IF NOT EXISTS generation_jobs_user_id_created_at_idx ON generation_jobs (user_id, created_at)`,
@@ -96,6 +107,8 @@ const statements = [
   `CREATE INDEX IF NOT EXISTS usage_reservations_status_created_at_idx ON usage_reservations (status, created_at)`,
   `CREATE INDEX IF NOT EXISTS audit_events_user_id_created_at_idx ON audit_events (user_id, created_at)`,
   `CREATE INDEX IF NOT EXISTS audit_events_action_created_at_idx ON audit_events (action, created_at)`,
+  `CREATE INDEX IF NOT EXISTS user_feedback_user_id_created_at_idx ON user_feedback (user_id, created_at)`,
+  `CREATE INDEX IF NOT EXISTS user_feedback_created_at_idx ON user_feedback (created_at)`,
   `CREATE INDEX IF NOT EXISTS users_username_idx ON users (username)`
 ];
 

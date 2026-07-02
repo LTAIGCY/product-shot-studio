@@ -19,6 +19,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await prisma.auditEvent.deleteMany();
+  await prisma.userFeedback.deleteMany();
   await prisma.generationJob.deleteMany();
   await prisma.usageReservation.deleteMany();
   await prisma.walletTransaction.deleteMany();
@@ -143,6 +144,34 @@ describe("Product Shot Studio ledger backend", () => {
     expect(overview.json().totalUsedPoints).toBe(200);
   });
 
+  it("supports shared point recharge and monthly card metadata without model binding", async () => {
+    const auth = await registerAndToken("monthly-user", "secret123");
+    const monthly = await api("POST", "/api/recharge/simulate", auth, {
+      amountPoints: 1200,
+      planId: "monthly-99",
+      planName: "标准月卡",
+      rechargeKind: "monthly",
+      note: "月卡服务：标准月卡，到账 1,200积分，有效期 30 天"
+    });
+
+    expect(monthly.statusCode).toBe(200);
+    expect(monthly.json().wallet.balancePoints).toBe(1200);
+    expect(monthly.json().transaction.providerId).toBeUndefined();
+    expect(monthly.json().transaction.modelId).toBeUndefined();
+    expect(monthly.json().transaction.note).toContain("标准月卡");
+
+    const legacy = await api("POST", "/api/recharge/simulate", auth, {
+      providerId: "volcano",
+      modelId: "doubao-seedream-4-0-250828",
+      amountPoints: 300
+    });
+
+    expect(legacy.statusCode).toBe(200);
+    expect(legacy.json().transaction.providerId).toBe("volcano");
+    expect(legacy.json().transaction.modelId).toBe("doubao-seedream-4-0-250828");
+    expect(legacy.json().wallet.balancePoints).toBe(1500);
+  });
+
   it("exposes recent audit events to the admin dashboard", async () => {
     const auth = await registerAndToken("monitor", "secret123");
     await api("POST", "/api/recharge/simulate", auth, {
@@ -163,6 +192,73 @@ describe("Product Shot Studio ledger backend", () => {
     expect(actions).toContain("user.register");
     expect(actions).toContain("wallet.recharge_simulated");
     expect(auditEvents.json().items[0].createdAt).toBeTruthy();
+  });
+
+  it("accepts authenticated feedback and exposes it to the admin dashboard", async () => {
+    const auth = await registerAndToken("feedback-user", "secret123");
+    const feedback = await api("POST", "/api/feedback", auth, {
+      message: "希望导出时可以记住上一次的命名方式。",
+      contact: "feedback@example.com",
+      appVersion: "0.3.5-test",
+      userAgent: "vitest"
+    });
+
+    expect(feedback.statusCode).toBe(200);
+    expect(feedback.json().feedback.message).toBe("希望导出时可以记住上一次的命名方式。");
+    expect(feedback.json().feedback.contact).toBe("feedback@example.com");
+
+    const stored = await prisma.userFeedback.findUnique({
+      where: { id: feedback.json().feedback.id },
+      include: { user: true }
+    });
+    expect(stored?.user.username).toBe("feedback-user");
+    expect(stored?.appVersion).toBe("0.3.5-test");
+
+    const adminAuthToken = await adminToken();
+    const adminFeedback = await app.inject({
+      method: "GET",
+      url: "/admin/feedback?limit=10",
+      headers: { authorization: `Bearer ${adminAuthToken}` }
+    });
+    expect(adminFeedback.statusCode).toBe(200);
+    expect(adminFeedback.json().items[0].username).toBe("feedback-user");
+    expect(adminFeedback.json().items[0].accountId).toMatch(/^ps_[a-f0-9]{12}$/);
+    expect(adminFeedback.json().items[0].message).toContain("导出");
+
+    const auditEvents = await prisma.auditEvent.findMany({ where: { action: "user.feedback_submit" } });
+    expect(auditEvents).toHaveLength(1);
+    expect(auditEvents[0].metadataJson).toContain(feedback.json().feedback.id);
+    expect(auditEvents[0].metadataJson).not.toContain("导出");
+  });
+
+  it("validates feedback payloads and protects the admin feedback list", async () => {
+    const auth = await registerAndToken("feedback-validation", "secret123");
+
+    const anonymous = await app.inject({
+      method: "POST",
+      url: "/api/feedback",
+      payload: { message: "未登录反馈" }
+    });
+    expect(anonymous.statusCode).toBe(401);
+
+    const blank = await api("POST", "/api/feedback", auth, { message: "   " });
+    expect(blank.statusCode).toBe(400);
+
+    const tooLong = await api("POST", "/api/feedback", auth, { message: "a".repeat(2001) });
+    expect(tooLong.statusCode).toBe(400);
+
+    const longContact = await api("POST", "/api/feedback", auth, {
+      message: "反馈内容",
+      contact: "a".repeat(121)
+    });
+    expect(longContact.statusCode).toBe(400);
+
+    const userAccess = await app.inject({
+      method: "GET",
+      url: "/admin/feedback",
+      headers: { authorization: `Bearer ${auth}` }
+    });
+    expect(userAccess.statusCode).toBe(403);
   });
 
   it("tracks online and offline user presence", async () => {

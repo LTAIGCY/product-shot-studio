@@ -3,6 +3,8 @@ import path from "node:path";
 import type {
   AuthCredentials,
   AuthSession,
+  FeedbackSubmitReceipt,
+  FeedbackSubmitRequest,
   JobStatus,
   LocalAccountSummary,
   MediaType,
@@ -47,6 +49,11 @@ interface BackendTransaction {
   modelId?: string;
   jobId?: string;
   note: string;
+  createdAt: string;
+}
+
+interface BackendFeedback {
+  id: string;
   createdAt: string;
 }
 
@@ -180,6 +187,19 @@ export class BackendClient {
     await this.request<{ ok: boolean }>("/api/auth/logout", { method: "POST" });
   }
 
+  async submitFeedback(
+    input: FeedbackSubmitRequest & { appVersion?: string; userAgent?: string }
+  ): Promise<FeedbackSubmitReceipt> {
+    const response = await this.request<{ ok: boolean; feedback: BackendFeedback }>("/api/feedback", {
+      method: "POST",
+      body: input
+    });
+    return {
+      id: response.feedback.id,
+      createdAt: response.feedback.createdAt
+    };
+  }
+
   requireSession(): AuthSession {
     const session = this.getSession();
     if (!session) {
@@ -209,7 +229,11 @@ export class BackendClient {
         body: {
           providerId: request.providerId,
           modelId: request.modelId,
-          amountPoints: request.amountCents
+          amountPoints: request.amountCents,
+          planId: request.planId,
+          planName: request.planName,
+          rechargeKind: request.rechargeKind,
+          note: request.note
         }
       }
     );

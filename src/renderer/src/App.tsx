@@ -4,6 +4,7 @@ import {
   useRef,
   type CSSProperties,
   type DragEvent,
+  type FormEvent,
   type MouseEvent,
   type PointerEvent,
   type ReactNode,
@@ -23,6 +24,7 @@ import {
   Clock3,
   Copy,
   CreditCard,
+  Diamond,
   Download,
   Edit3,
   Eraser,
@@ -42,8 +44,10 @@ import {
   LayoutGrid,
   Loader2,
   LogOut,
+  Mail,
   MapPin,
   Megaphone,
+  MessageSquare,
   MousePointer2,
   Move,
   Palette,
@@ -57,10 +61,13 @@ import {
   RotateCcw,
   Rows2,
   Save,
+  Send,
   Settings,
+  Shapes,
   Sparkles,
   Square,
   Trash2,
+  Triangle,
   Upload,
   User,
   Video,
@@ -104,17 +111,21 @@ import authRobotMascotUrl from "../assets/auth-robot-mascot.png";
 import authStudioBackgroundUrl from "../assets/auth-studio-background-clean.png";
 import workflowStudioIllustrationUrl from "../assets/workflow-studio-illustration.png";
 import {
+  creditRatePerYuan,
   estimateRequestCostCents,
   estimateVideoRequestCostCents,
+  formatYuan,
   formatUsdCents,
   getUnitPriceCents,
-  imageQualities,
+  monthlyCardPlans,
   modelPrices,
-  rechargeAmounts
+  rechargePackages,
+  videoModelPrices
 } from "@shared/billing";
 import type {
   AuthSession,
   AspectRatio,
+  CanvasKind,
   CanvasNode,
   CanvasConnectorNode,
   CanvasFreehandNode,
@@ -124,8 +135,15 @@ import type {
   CanvasShapeNode,
   CanvasTextNode,
   ExportFormat,
+  FeedbackSubmitRequest,
   GenerateProgress,
   ImageQuality,
+  InfiniteCanvasNodeKind,
+  InfiniteCanvasNodeStatus,
+  InfiniteCanvasPortType,
+  InfiniteCanvasQueueItem,
+  InfiniteCanvasWorkflowEdge,
+  InfiniteCanvasWorkflowNode,
   ImportedImage,
   MediaType,
   PersonalGalleryItem,
@@ -147,6 +165,8 @@ import type {
 const aspectRatios: AspectRatio[] = ["1:1", "4:5", "16:9", "3:2"];
 const exportFormats: ExportFormat[] = ["png", "jpg", "webp"];
 const canvasExportFormats: ExportFormat[] = ["png", "jpg", "webp"];
+const infiniteCanvasSize = { width: 9000, height: 6000 };
+const manualAspectRatioOptions = ["1:1", "4:5", "16:9", "3:2", "9:16", "3:4", "1024x1024", "1280x720", "720x1280"];
 const defaultCanvasSize = { width: 1080, height: 1350 };
 const defaultCanvasBackground = "#fffaf3";
 type AppPage = "image" | "video" | "gallery" | "personal" | "updates" | "settings";
@@ -177,9 +197,55 @@ type PreviewVideo = {
   subtitle?: string;
   fileName?: string;
 };
-type GalleryViewMode = "works" | "canvas";
-type CanvasTool = "select" | "pan" | "text" | "note" | "rect" | "circle" | "line" | "arrow" | "connector" | "brush" | "eraser" | "aiTask";
+type GalleryViewMode = "works" | "personalCanvas" | "infiniteCanvas";
+type AutoSaveStatus = "idle" | "saving" | "saved" | "failed";
+type CanvasTool = "select" | "pan" | "text" | "shape" | "brush" | "eraser";
+type CanvasShapeTool = CanvasShapeNode["shapeType"];
 type CanvasSnapshot = Pick<CanvasProject, "background" | "nodes" | "width" | "height">;
+type CanvasPoint = { x: number; y: number };
+type CanvasShapeDraft = {
+  id: string;
+  shapeType: CanvasShapeNode["shapeType"];
+  start: CanvasPoint;
+};
+type CanvasAutoSaveSettings = {
+  enabled: boolean;
+  delayMs: number;
+};
+type PersonalCanvasPanelWidths = {
+  left: number;
+  right: number;
+};
+type InfiniteCanvasLayout = {
+  left: number;
+  right: number;
+};
+type InfiniteViewportState = {
+  panX: number;
+  panY: number;
+  zoom: number;
+};
+type InfiniteCanvasSnapshot = {
+  title: string;
+  workflowNodes: InfiniteCanvasWorkflowNode[];
+  workflowEdges: InfiniteCanvasWorkflowEdge[];
+  workflowQueue: InfiniteCanvasQueueItem[];
+  viewport: InfiniteViewportState;
+  selectedNodeId: string | null;
+};
+type InfiniteModelOption = {
+  providerId: ProviderId;
+  modelId: string;
+  label: string;
+  modelKind: "image" | "video";
+};
+type InfinitePanState = {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  originPanX: number;
+  originPanY: number;
+};
 type CanvasDraftProject = CanvasProject & {
   draft?: boolean;
 };
@@ -422,13 +488,12 @@ const uiText = {
   walletUsed: "\u5df2\u7528",
   insufficientBalance: "\u4f59\u989d\u4e0d\u8db3\uff0c\u8bf7\u5148\u5145\u503c",
   recharge: "\u5145\u503c",
-  rechargeTitle: "\u5fae\u4fe1\u626b\u7801\u5145\u503c",
-  rechargeModel: "\u5145\u503c\u6a21\u578b",
+  rechargeTitle: "\u5145\u503c\u901a\u7528\u79ef\u5206",
+  rechargeModel: "\u901a\u7528\u79ef\u5206",
   rechargeAmount: "\u5145\u503c\u91d1\u989d",
   confirmRecharge: "\u6211\u5df2\u5b8c\u6210\u626b\u7801\uff0c\u8bb0\u5f55\u5230\u8d26",
-  rechargeLocalNote: "\u5f53\u524d\u4e3a\u672c\u5730\u8bb0\u8d26\u7248\u672c\uff1b\u771f\u5b9e\u5fae\u4fe1\u652f\u4ed8\u9700\u8981\u5546\u6237\u53f7\u3001\u670d\u52a1\u7aef\u4e0b\u5355\u548c\u56de\u8c03\u786e\u8ba4\u3002",
-  pricing: "\u6a21\u578b\u4ef7\u683c",
-  priceNote: "\u4ef7\u683c\u4e3a\u516c\u5f00\u4ef7\u683c\u4f30\u7b97\uff0c\u5b9e\u9645\u8d26\u5355\u4ee5\u5404\u6a21\u578b\u5e73\u53f0\u4e3a\u51c6\u3002",
+  rechargeLocalNote: "\u5f53\u524d\u4e3a\u672c\u5730\u8bb0\u8d26\u7248\u672c\uff1b\u771f\u5b9e\u5fae\u4fe1\u652f\u4ed8\u9700\u8981\u5546\u6237\u53f7\u3001\u670d\u52a1\u7aef\u4e0b\u5355\u548c\u56de\u8c03\u786e\u8ba4\u3002\u6708\u5361\u4e3a\u624b\u52a8\u8d2d\u4e70\uff0c\u79ef\u5206\u7acb\u5373\u5230\u8d26\u3002",
+  pricing: "\u79ef\u5206\u6536\u8d39\u6807\u51c6",
   tutorial: "\u6559\u7a0b",
   tutorialTitle: "\u4f7f\u7528\u6559\u7a0b\u4e0e\u5e38\u89c1\u95ee\u9898",
   tutorialIntroTitle: "\u8f6f\u4ef6\u4ecb\u7ecd",
@@ -471,12 +536,6 @@ const jobStatusLabels: Record<ProductShotJob["status"], string> = {
   canceled: "\u5df2\u53d6\u6d88"
 };
 
-const qualityLabels: Record<ImageQuality, string> = {
-  standard: "\u6807\u51c6",
-  high: "\u9ad8\u6e05",
-  ultra: "\u8d85\u6e05"
-};
-
 const presetLabels = Object.fromEntries(
   productShotPresets.map((preset) => [
     preset.id,
@@ -493,6 +552,13 @@ const modelSelectionStorageKeys = {
 };
 const exportFormatStorageKey = "productStudio.exportFormat";
 const tencentVodSubAppIdStorageKey = "productStudio.tencentVodSubAppId";
+const galleryViewModeStorageKey = "productStudio.galleryViewMode";
+const activePersonalCanvasProjectStorageKey = "productStudio.activePersonalCanvasProjectId";
+const activeInfiniteCanvasProjectStorageKey = "productStudio.activeInfiniteCanvasProjectId";
+const canvasAutoSaveEnabledStorageKey = "productStudio.canvasAutoSaveEnabled";
+const canvasAutoSaveDelayStorageKey = "productStudio.canvasAutoSaveDelayMs";
+const personalCanvasPanelWidthsStorageKey = "productStudio.personalCanvasPanelWidths";
+const infiniteCanvasLayoutStorageKey = "productStudio.infiniteCanvasLayout";
 const workspaceLayoutStorageKeys: Record<WorkspaceLayoutKind, string> = {
   image: "productStudio.layout.image",
   video: "productStudio.layout.video"
@@ -500,6 +566,18 @@ const workspaceLayoutStorageKeys: Record<WorkspaceLayoutKind, string> = {
 const defaultWorkspaceLayouts: Record<WorkspaceLayoutKind, WorkspaceLayoutSize> = {
   image: { splitPercent: 48, resultHeight: 230 },
   video: { splitPercent: 42, resultHeight: 240 }
+};
+const defaultCanvasAutoSaveSettings: CanvasAutoSaveSettings = {
+  enabled: true,
+  delayMs: 30000
+};
+const defaultPersonalCanvasPanelWidths: PersonalCanvasPanelWidths = {
+  left: 292,
+  right: 292
+};
+const defaultInfiniteCanvasLayout: InfiniteCanvasLayout = {
+  left: 230,
+  right: 280
 };
 
 function readInitialModelSelection(): { providerId: ProviderId; modelId: string } {
@@ -522,6 +600,47 @@ function readSavedExportFormat(): ExportFormat {
 
 function readSavedTencentVodSubAppId(): string {
   return localStorage.getItem(tencentVodSubAppIdStorageKey) ?? "";
+}
+
+function readSavedGalleryViewMode(): GalleryViewMode {
+  const value = localStorage.getItem(galleryViewModeStorageKey);
+  return value === "personalCanvas" || value === "infiniteCanvas" || value === "works" ? value : "works";
+}
+
+function readSavedCanvasProjectId(storageKey: string): string | null {
+  const value = localStorage.getItem(storageKey);
+  return value && !value.startsWith("draft-") ? value : null;
+}
+
+function readCanvasAutoSaveSettings(): CanvasAutoSaveSettings {
+  const enabledValue = localStorage.getItem(canvasAutoSaveEnabledStorageKey);
+  const delayValue = Number(localStorage.getItem(canvasAutoSaveDelayStorageKey));
+  return {
+    enabled: enabledValue === null ? defaultCanvasAutoSaveSettings.enabled : enabledValue === "true",
+    delayMs: clampCanvasAutoSaveDelay(delayValue || defaultCanvasAutoSaveSettings.delayMs)
+  };
+}
+
+function readPersonalCanvasPanelWidths(): PersonalCanvasPanelWidths {
+  const raw = localStorage.getItem(personalCanvasPanelWidthsStorageKey);
+  if (!raw) return defaultPersonalCanvasPanelWidths;
+  try {
+    const parsed = JSON.parse(raw) as Partial<PersonalCanvasPanelWidths>;
+    return clampPersonalCanvasPanelWidths(parsed);
+  } catch {
+    return defaultPersonalCanvasPanelWidths;
+  }
+}
+
+function readInfiniteCanvasLayout(): InfiniteCanvasLayout {
+  const raw = localStorage.getItem(infiniteCanvasLayoutStorageKey);
+  if (!raw) return defaultInfiniteCanvasLayout;
+  try {
+    const parsed = JSON.parse(raw) as Partial<InfiniteCanvasLayout>;
+    return clampInfiniteCanvasLayout(parsed);
+  } catch {
+    return defaultInfiniteCanvasLayout;
+  }
 }
 
 function readWorkspaceLayout(kind: WorkspaceLayoutKind): WorkspaceLayoutSize {
@@ -550,6 +669,31 @@ function persistWorkspaceLayout(kind: WorkspaceLayoutKind, layout: WorkspaceLayo
   localStorage.setItem(workspaceLayoutStorageKeys[kind], JSON.stringify(clampWorkspaceLayout(layout)));
 }
 
+function persistGalleryViewMode(viewMode: GalleryViewMode) {
+  localStorage.setItem(galleryViewModeStorageKey, viewMode);
+}
+
+function persistActiveCanvasProjectId(storageKey: string, projectId: string | null) {
+  if (projectId) {
+    localStorage.setItem(storageKey, projectId);
+  } else {
+    localStorage.removeItem(storageKey);
+  }
+}
+
+function persistCanvasAutoSaveSettings(settings: CanvasAutoSaveSettings) {
+  localStorage.setItem(canvasAutoSaveEnabledStorageKey, String(settings.enabled));
+  localStorage.setItem(canvasAutoSaveDelayStorageKey, String(clampCanvasAutoSaveDelay(settings.delayMs)));
+}
+
+function persistPersonalCanvasPanelWidths(widths: PersonalCanvasPanelWidths) {
+  localStorage.setItem(personalCanvasPanelWidthsStorageKey, JSON.stringify(clampPersonalCanvasPanelWidths(widths)));
+}
+
+function persistInfiniteCanvasLayout(layout: InfiniteCanvasLayout) {
+  localStorage.setItem(infiniteCanvasLayoutStorageKey, JSON.stringify(clampInfiniteCanvasLayout(layout)));
+}
+
 export function App() {
   const [initialModelSelection] = useState(() => readInitialModelSelection());
   const [activePage, setActivePage] = useState<AppPage>("image");
@@ -576,6 +720,14 @@ export function App() {
   const [tencentVodSubAppId, setTencentVodSubAppId] = useState(() => readSavedTencentVodSubAppId());
   const [imageWorkspaceLayout, setImageWorkspaceLayout] = useState(() => readWorkspaceLayout("image"));
   const [videoWorkspaceLayout, setVideoWorkspaceLayout] = useState(() => readWorkspaceLayout("video"));
+  const [galleryViewMode, setGalleryViewModeState] = useState<GalleryViewMode>(() => readSavedGalleryViewMode());
+  const [activePersonalCanvasProjectId, setActivePersonalCanvasProjectId] = useState<string | null>(() =>
+    readSavedCanvasProjectId(activePersonalCanvasProjectStorageKey)
+  );
+  const [activeInfiniteCanvasProjectId, setActiveInfiniteCanvasProjectId] = useState<string | null>(() =>
+    readSavedCanvasProjectId(activeInfiniteCanvasProjectStorageKey)
+  );
+  const [canvasAutoSaveSettings, setCanvasAutoSaveSettings] = useState<CanvasAutoSaveSettings>(() => readCanvasAutoSaveSettings());
   const [importedImages, setImportedImages] = useState<ImportedImage[]>([]);
   const [activeImagePath, setActiveImagePath] = useState<string | null>(null);
   const [videoImportedImages, setVideoImportedImages] = useState<ImportedImage[]>([]);
@@ -605,6 +757,7 @@ export function App() {
   const [videoDragActive, setVideoDragActive] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [pendingGenerateMode, setPendingGenerateMode] = useState<GenerateMode | null>(null);
   const [defaultExportDir, setDefaultExportDir] = useState("");
   const [previewImage, setPreviewImage] = useState<PreviewImage | null>(null);
@@ -633,6 +786,34 @@ export function App() {
     const clamped = clampWorkspaceLayout(layout);
     setVideoWorkspaceLayout(clamped);
     persistWorkspaceLayout("video", clamped);
+  }
+
+  function updateGalleryViewMode(viewMode: GalleryViewMode) {
+    setGalleryViewModeState(viewMode);
+    persistGalleryViewMode(viewMode);
+  }
+
+  function updateActivePersonalCanvasProject(projectId: string | null) {
+    const normalizedProjectId = projectId && !projectId.startsWith("draft-") ? projectId : null;
+    setActivePersonalCanvasProjectId(normalizedProjectId);
+    persistActiveCanvasProjectId(activePersonalCanvasProjectStorageKey, normalizedProjectId);
+  }
+
+  function updateActiveInfiniteCanvasProject(projectId: string | null) {
+    const normalizedProjectId = projectId && !projectId.startsWith("draft-") ? projectId : null;
+    setActiveInfiniteCanvasProjectId(normalizedProjectId);
+    persistActiveCanvasProjectId(activeInfiniteCanvasProjectStorageKey, normalizedProjectId);
+  }
+
+  function updateCanvasAutoSaveSettings(patch: Partial<CanvasAutoSaveSettings>) {
+    setCanvasAutoSaveSettings((current) => {
+      const next = {
+        enabled: patch.enabled ?? current.enabled,
+        delayMs: clampCanvasAutoSaveDelay(patch.delayMs ?? current.delayMs)
+      };
+      persistCanvasAutoSaveSettings(next);
+      return next;
+    });
   }
 
   const configuredProvider = keyStatus.find((item) => item.providerId === providerId)?.configured ?? false;
@@ -928,6 +1109,15 @@ export function App() {
     setStatusSequence((current) => current + 1);
   }
 
+  async function submitFeedback(request: FeedbackSubmitRequest) {
+    if (!session) {
+      throw new Error("请先登录账号后再提交反馈。");
+    }
+    await window.productStudio.submitFeedback(request);
+    setFeedbackOpen(false);
+    showStatus("反馈已发送，感谢你的建议。", "success");
+  }
+
   useEffect(() => {
     if (!statusText) return;
     const timeout = window.setTimeout(() => setStatusText(""), statusTone === "normal" ? 5200 : 4400);
@@ -1044,6 +1234,38 @@ export function App() {
       showStatus(`已将 ${job.results.length} ${isVideoJob(job) ? "个历史视频" : "张历史图片"}加入个人图库。`);
     } catch (error) {
       showStatus(error instanceof Error ? error.message : "加入个人图库失败。", "warn");
+    }
+  }
+
+  async function importImagesToGallery() {
+    try {
+      showStatus(uiText.importing);
+      const imported = await window.productStudio.selectImages();
+      if (imported.length === 0) {
+        showStatus(uiText.imageCanceled);
+        return;
+      }
+      const existingPaths = new Set(galleryItems.map((item) => item.imagePath));
+      const imagesToAdd = imported.filter((image) => !existingPaths.has(image.sourceImagePath));
+      if (imagesToAdd.length === 0) {
+        showStatus("选择的图片已经在个人图库中。");
+        return;
+      }
+      const addedItems = await Promise.all(
+        imagesToAdd.map((image) =>
+          window.productStudio.addGalleryItem({
+            imagePath: image.sourceImagePath,
+            mediaType: "image",
+            title: getDisplayFileName(image.originalPath || image.sourceImagePath, "导入图片")
+          })
+        )
+      );
+      setGalleryItems((current) =>
+        [...current, ...addedItems].sort((a, b) => a.sortOrder - b.sortOrder)
+      );
+      showStatus(`已导入 ${addedItems.length} 张图片到个人图库。`);
+    } catch (error) {
+      showStatus(error instanceof Error ? error.message : "导入个人图库失败。", "warn");
     }
   }
 
@@ -2050,8 +2272,10 @@ export function App() {
         ) : activePage === "gallery" ? (
           <PersonalGalleryPage
             items={galleryItems}
+            viewMode={galleryViewMode}
             selectedIds={selectedGalleryIds}
             onSelectedIdsChange={setSelectedGalleryIds}
+            onViewModeChange={updateGalleryViewMode}
             onPreview={(item) => {
               if (getGalleryMediaType(item) === "video") {
                 setPreviewVideo(createGalleryPreviewVideo(item));
@@ -2061,10 +2285,21 @@ export function App() {
               setPreviewImage(createGalleryPreviewImage(item));
             }}
             onCompare={openGalleryComparison}
+            onImportImages={() => void importImagesToGallery()}
             onReorder={(items) => void reorderGalleryItems(items)}
             onRemove={(itemId) => void removeGalleryItem(itemId)}
             onGalleryItemAdded={(item) => {
               setGalleryItems((current) => [...current.filter((entry) => entry.id !== item.id), item].sort((a, b) => a.sortOrder - b.sortOrder));
+            }}
+            autoSaveSettings={canvasAutoSaveSettings}
+            activePersonalCanvasProjectId={activePersonalCanvasProjectId}
+            activeInfiniteCanvasProjectId={activeInfiniteCanvasProjectId}
+            onActivePersonalCanvasProjectChange={updateActivePersonalCanvasProject}
+            onActiveInfiniteCanvasProjectChange={updateActiveInfiniteCanvasProject}
+            onRefreshStatus={() => void refreshStatus()}
+            onPreviewCanvasImage={(image) => {
+              setPreviewComparisonImages([]);
+              setPreviewImage(image);
             }}
           />
         ) : activePage === "personal" ? (
@@ -2099,12 +2334,16 @@ export function App() {
             defaultExportDir={defaultExportDir}
             exportFormat={exportFormat}
             tencentVodSubAppId={tencentVodSubAppId}
+            canvasAutoSaveEnabled={canvasAutoSaveSettings.enabled}
+            canvasAutoSaveDelayMs={canvasAutoSaveSettings.delayMs}
             embedded
             onExportFormatChange={updateExportFormat}
             onTencentVodSubAppIdChange={updateTencentVodSubAppId}
+            onCanvasAutoSaveChange={updateCanvasAutoSaveSettings}
             onClose={() => setActivePage("image")}
             onChooseExportFolder={() => void chooseDefaultExportFolder()}
             onOpenTutorial={() => setTutorialOpen(true)}
+            onOpenFeedback={() => setFeedbackOpen(true)}
           />
         )}
       </div>
@@ -2127,6 +2366,7 @@ export function App() {
         />
       ) : null}
       {tutorialOpen ? <TutorialDialog onClose={() => setTutorialOpen(false)} /> : null}
+      {feedbackOpen ? <FeedbackDialog onClose={() => setFeedbackOpen(false)} onSubmit={submitFeedback} /> : null}
       {pendingGenerateMode ? (
         <GenerateConfirmationDialog
           mode={pendingGenerateMode}
@@ -3558,73 +3798,75 @@ function AuthRobotMascot(props: {
   const mascotRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<number | null>(null);
   const latestPointerRef = useRef({ x: 0, y: 0 });
-  const [eyeOffset, setEyeOffset] = useState<RobotEyeOffset>({ x: 0, y: 0 });
   const reducedMotion = prefersReducedMotion();
   const hasPassword = props.passwordLength > 0;
   const hidingPassword = hasPassword && !props.showPassword;
   const peekingPassword = hasPassword && props.showPassword;
 
   useEffect(() => {
-    if (reducedMotion) return;
+    if (reducedMotion) {
+      mascotRef.current?.style.setProperty("--robot-eye-pointer-x", "0px");
+      mascotRef.current?.style.setProperty("--robot-eye-pointer-y", "0px");
+      return;
+    }
 
     function updateEyeOffset() {
       frameRef.current = null;
-      const rect = mascotRef.current?.getBoundingClientRect();
-      if (!rect) return;
+      const mascot = mascotRef.current;
+      if (!mascot) return;
+      const rect = mascot.getBoundingClientRect();
 
       const centerX = rect.left + rect.width * 0.52;
       const centerY = rect.top + rect.height * 0.44;
       const deltaX = latestPointerRef.current.x - centerX;
       const deltaY = latestPointerRef.current.y - centerY;
 
-      setEyeOffset({
-        x: clampMascotMotion(deltaX / 54, -4, 4),
-        y: clampMascotMotion(deltaY / 68, -3, 3)
-      });
+      mascot.style.setProperty("--robot-eye-pointer-x", `${clampMascotMotion(deltaX / 54, -4, 4)}px`);
+      mascot.style.setProperty("--robot-eye-pointer-y", `${clampMascotMotion(deltaY / 68, -3, 3)}px`);
     }
 
-    function handleMouseMove(event: globalThis.MouseEvent) {
+    function handlePointerMove(event: globalThis.PointerEvent) {
       latestPointerRef.current = { x: event.clientX, y: event.clientY };
       if (frameRef.current !== null) return;
       frameRef.current = window.requestAnimationFrame(updateEyeOffset);
     }
 
-    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("pointermove", handlePointerMove);
     return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("pointermove", handlePointerMove);
       if (frameRef.current !== null) {
         window.cancelAnimationFrame(frameRef.current);
       }
     };
   }, [reducedMotion]);
 
-  let directedEyeOffset = eyeOffset;
+  let stateEyeOffset: RobotEyeOffset = { x: 0, y: 0 };
   if (reducedMotion) {
-    directedEyeOffset = { x: 0, y: 0 };
+    stateEyeOffset = { x: 0, y: 0 };
   } else if (peekingPassword) {
-    directedEyeOffset = { x: 4, y: -3 };
+    stateEyeOffset = { x: 2, y: -1 };
   } else if (hidingPassword) {
-    directedEyeOffset = { x: -4, y: 3 };
+    stateEyeOffset = { x: -2, y: 1 };
   } else if (props.isTyping) {
-    directedEyeOffset = { x: -3, y: -2 };
+    stateEyeOffset = { x: -1.5, y: -1 };
   }
 
   return (
     <div
       ref={mascotRef}
       className={`auth-robot-mascot ${props.isTyping ? "is-typing" : ""} ${hidingPassword ? "is-hiding-password" : ""} ${peekingPassword ? "is-peeking-password" : ""}`}
+      style={
+        {
+          "--robot-eye-state-x": `${stateEyeOffset.x}px`,
+          "--robot-eye-state-y": `${stateEyeOffset.y}px`
+        } as CSSProperties
+      }
       aria-hidden="true"
     >
       <img src={authRobotMascotUrl} alt="" />
       <div className="auth-robot-face-mask">
-        <span
-          className="auth-robot-eye left"
-          style={{ transform: `translate(${directedEyeOffset.x}px, ${directedEyeOffset.y}px)` }}
-        />
-        <span
-          className="auth-robot-eye right"
-          style={{ transform: `translate(${directedEyeOffset.x}px, ${directedEyeOffset.y}px)` }}
-        />
+        <span className="auth-robot-eye left" />
+        <span className="auth-robot-eye right" />
       </div>
     </div>
   );
@@ -5201,20 +5443,30 @@ function isPreviewInteractiveDragTarget(target: EventTarget | null): boolean {
 
 function PersonalGalleryPage(props: {
   items: PersonalGalleryItem[];
+  viewMode: GalleryViewMode;
   selectedIds: string[];
   onSelectedIdsChange: (itemIds: string[]) => void;
+  onViewModeChange: (viewMode: GalleryViewMode) => void;
   onPreview: (item: PersonalGalleryItem) => void;
   onCompare: (items: PersonalGalleryItem[]) => void;
+  onImportImages: () => void;
   onReorder: (items: PersonalGalleryItem[]) => void;
   onRemove: (itemId: string) => void;
   onGalleryItemAdded: (item: PersonalGalleryItem) => void;
+  autoSaveSettings: CanvasAutoSaveSettings;
+  activePersonalCanvasProjectId: string | null;
+  activeInfiniteCanvasProjectId: string | null;
+  onActivePersonalCanvasProjectChange: (projectId: string | null) => void;
+  onActiveInfiniteCanvasProjectChange: (projectId: string | null) => void;
+  onRefreshStatus: () => void;
+  onPreviewCanvasImage: (image: PreviewImage) => void;
 }) {
-  const [viewMode, setViewMode] = useState<GalleryViewMode>("works");
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
   const [dragOverItemId, setDragOverItemId] = useState<string | null>(null);
   const selectedItems = props.items.filter((item) => props.selectedIds.includes(item.id));
   const selectedImageItems = selectedItems.filter((item) => getGalleryMediaType(item) === "image");
   const allSelected = props.items.length > 0 && props.items.every((item) => props.selectedIds.includes(item.id));
+  const viewMode = props.viewMode;
 
   function toggleSelected(itemId: string) {
     props.onSelectedIdsChange(
@@ -5265,25 +5517,57 @@ function PersonalGalleryPage(props: {
       <header className="page-header gallery-page-header">
         <div>
           <h2>{uiText.galleryPage}</h2>
-          <p>{viewMode === "works" ? `${props.items.length} 个收藏 / 电商发布顺序` : "自由画布 / 本地项目与图库素材"}</p>
+          <p>
+            {viewMode === "works"
+              ? `${props.items.length} 个收藏 / 电商发布顺序`
+              : viewMode === "personalCanvas"
+                ? "个人画布 / 本地项目与图库素材"
+                : "无限画布 / AI 节点工作流"}
+          </p>
         </div>
         <div className="gallery-toolbar">
+          <div className="gallery-leading-action">
+            {viewMode === "works" ? (
+              <>
+                <button
+                  className="primary-button"
+                  disabled={selectedImageItems.length < 2}
+                  onClick={() => props.onCompare(selectedImageItems)}
+                >
+                  <LayoutGrid size={16} />
+                  对比 {selectedImageItems.length > 0 ? selectedImageItems.length : ""}
+                </button>
+                <button className="secondary-button" onClick={props.onImportImages} type="button">
+                  <ImagePlus size={16} />
+                  导入
+                </button>
+              </>
+            ) : null}
+          </div>
           <div className="gallery-mode-switch" role="tablist" aria-label="个人图库视图">
             <button
               className={viewMode === "works" ? "active" : ""}
-              onClick={() => setViewMode("works")}
+              onClick={() => props.onViewModeChange("works")}
               type="button"
             >
               <Images size={15} />
               图库作品
             </button>
             <button
-              className={viewMode === "canvas" ? "active" : ""}
-              onClick={() => setViewMode("canvas")}
+              className={viewMode === "personalCanvas" ? "active" : ""}
+              onClick={() => props.onViewModeChange("personalCanvas")}
               type="button"
             >
               <PenLine size={15} />
-              自由画布
+              个人画布
+            </button>
+            <button
+              className={viewMode === "infiniteCanvas" ? "active" : ""}
+              onClick={() => props.onViewModeChange("infiniteCanvas")}
+              type="button"
+            >
+              <Sparkles size={15} />
+              无限画布
             </button>
           </div>
           {viewMode === "works" && props.items.length > 0 ? (
@@ -5301,24 +5585,29 @@ function PersonalGalleryPage(props: {
               清除选择
             </button>
           ) : null}
-          {viewMode === "works" ? (
-            <button
-              className="primary-button"
-              disabled={selectedImageItems.length < 2}
-              onClick={() => props.onCompare(selectedImageItems)}
-            >
-              <LayoutGrid size={16} />
-              对比 {selectedImageItems.length > 0 ? selectedImageItems.length : ""}
-            </button>
-          ) : null}
         </div>
       </header>
 
-      {viewMode === "canvas" ? (
+      {viewMode === "personalCanvas" ? (
         <FreeCanvasWorkspace
+          canvasKind="personal"
           galleryItems={props.items}
           onGalleryItemAdded={props.onGalleryItemAdded}
-          onExit={() => setViewMode("works")}
+          autoSaveSettings={props.autoSaveSettings}
+          activeProjectId={props.activePersonalCanvasProjectId}
+          onActiveProjectIdChange={props.onActivePersonalCanvasProjectChange}
+          onExit={() => props.onViewModeChange("works")}
+        />
+      ) : viewMode === "infiniteCanvas" ? (
+        <InfiniteCanvasWorkspace
+          galleryItems={props.items}
+          autoSaveSettings={props.autoSaveSettings}
+          activeProjectId={props.activeInfiniteCanvasProjectId}
+          onActiveProjectIdChange={props.onActiveInfiniteCanvasProjectChange}
+          onGalleryItemAdded={props.onGalleryItemAdded}
+          onPreviewImage={props.onPreviewCanvasImage}
+          onRefreshStatus={props.onRefreshStatus}
+          onExit={() => props.onViewModeChange("works")}
         />
       ) : props.items.length === 0 ? (
         <section className="gallery-empty">
@@ -5421,8 +5710,12 @@ function PersonalGalleryPage(props: {
 }
 
 function FreeCanvasWorkspace(props: {
+  canvasKind: CanvasKind;
   galleryItems: PersonalGalleryItem[];
   onGalleryItemAdded: (item: PersonalGalleryItem) => void;
+  autoSaveSettings: CanvasAutoSaveSettings;
+  activeProjectId: string | null;
+  onActiveProjectIdChange: (projectId: string | null) => void;
   onExit: () => void;
 }) {
   const visibleStageRef = useRef<Konva.Stage>(null);
@@ -5432,11 +5725,28 @@ function FreeCanvasWorkspace(props: {
   const dragSnapshotRef = useRef<Record<string, { x: number; y: number }> | null>(null);
   const clipboardRef = useRef<CanvasNode[]>([]);
   const selectionStartRef = useRef<{ x: number; y: number } | null>(null);
+  const drawingRef = useRef<{ id: string; tool: CanvasTool; points: number[]; strokeWidth: number } | null>(null);
+  const shapeDraftRef = useRef<CanvasShapeDraft | null>(null);
+  const eraserChangedRef = useRef(0);
+  const latestPersonalCanvasSaveRef = useRef<{
+    project: CanvasDraftProject;
+    dirty: boolean;
+    busy: boolean;
+    canvasApiReady: boolean;
+    zoom: number;
+    pan: { x: number; y: number };
+    showGrid: boolean;
+    snapToGrid: boolean;
+    selectedIds: string[];
+    canvasKind: CanvasKind;
+  } | null>(null);
+  const onActivePersonalProjectIdChangeRef = useRef(props.onActiveProjectIdChange);
   const [stageSize, setStageSize] = useState({ width: 900, height: 620 });
   const [projects, setProjects] = useState<CanvasProjectSummary[]>([]);
-  const [activeProject, setActiveProject] = useState<CanvasDraftProject>(() => createDraftCanvasProject());
+  const [activeProject, setActiveProject] = useState<CanvasDraftProject>(() => createDraftCanvasProject(props.canvasKind));
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [tool, setTool] = useState<CanvasTool>("select");
+  const [selectedShapeType, setSelectedShapeType] = useState<CanvasShapeTool>("rect");
   const [zoom, setZoom] = useState(0.55);
   const [pan, setPan] = useState({ x: 160, y: 60 });
   const [isPanning, setIsPanning] = useState(false);
@@ -5447,17 +5757,19 @@ function FreeCanvasWorkspace(props: {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<AutoSaveStatus>("idle");
   const [exportFormat, setExportFormat] = useState<ExportFormat>("png");
   const [brushColor, setBrushColor] = useState("#8f5728");
   const [brushSize, setBrushSize] = useState(10);
   const [snapToGrid, setSnapToGrid] = useState(true);
   const [showGrid, setShowGrid] = useState(true);
   const [selectionBox, setSelectionBox] = useState<CanvasSelectionBox | null>(null);
+  const [eraserPoint, setEraserPoint] = useState<CanvasPoint | null>(null);
   const [contextMenu, setContextMenu] = useState<CanvasContextMenuState>(null);
   const [isSpacePanning, setIsSpacePanning] = useState(false);
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
-  const [aiPrompt, setAiPrompt] = useState("商品主图，柔和棚拍光线，高级质感");
+  const [panelWidths, setPanelWidths] = useState<PersonalCanvasPanelWidths>(() => readPersonalCanvasPanelWidths());
   const canvasApiReady =
     typeof window.productStudio.listCanvasProjects === "function" &&
     typeof window.productStudio.saveCanvasProject === "function" &&
@@ -5465,6 +5777,52 @@ function FreeCanvasWorkspace(props: {
   const imageGalleryItems = props.galleryItems.filter((item) => getGalleryMediaType(item) === "image");
   const selectedNodes = activeProject.nodes.filter((node) => selectedIds.includes(node.id));
   const singleSelectedNode = selectedNodes.length === 1 ? selectedNodes[0] : null;
+
+  useEffect(() => {
+    onActivePersonalProjectIdChangeRef.current = props.onActiveProjectIdChange;
+  }, [props.onActiveProjectIdChange]);
+
+  useEffect(() => {
+    latestPersonalCanvasSaveRef.current = {
+      project: activeProject,
+      dirty,
+      busy,
+      canvasApiReady,
+      zoom,
+      pan,
+      showGrid,
+      snapToGrid,
+      selectedIds,
+      canvasKind: props.canvasKind
+    };
+  }, [activeProject, busy, canvasApiReady, dirty, pan, props.canvasKind, selectedIds, showGrid, snapToGrid, zoom]);
+
+  useEffect(() => {
+    return () => {
+      const state = latestPersonalCanvasSaveRef.current;
+      if (!state?.canvasApiReady || state.busy) return;
+      const project = state.project;
+      const hasContent = project.nodes.length > 0;
+      if (!state.dirty && (!project.draft || !hasContent)) return;
+      if (project.draft && !hasContent) return;
+      void window.productStudio
+        .saveCanvasProject({
+          id: project.draft ? undefined : project.id,
+          canvasKind: state.canvasKind,
+          title: project.title,
+          width: project.width,
+          height: project.height,
+          background: project.background,
+          nodes: project.nodes,
+          viewport: { zoom: state.zoom, panX: state.pan.x, panY: state.pan.y },
+          gridEnabled: state.showGrid,
+          snapEnabled: state.snapToGrid,
+          selectedNodeIds: state.selectedIds
+        })
+        .then((saved) => onActivePersonalProjectIdChangeRef.current(saved.id))
+        .catch(() => undefined);
+    };
+  }, []);
 
   useEffect(() => {
     if (!canvasApiReady) {
@@ -5475,7 +5833,7 @@ function FreeCanvasWorkspace(props: {
     window.productStudio
       .listCanvasProjects()
       .then((items) => {
-        if (mounted) setProjects(items);
+        if (mounted) setProjects(items.filter((item) => item.canvasKind === props.canvasKind));
       })
       .catch((error) => {
         if (mounted) setMessage(error instanceof Error ? error.message : "读取画布项目失败。");
@@ -5483,7 +5841,14 @@ function FreeCanvasWorkspace(props: {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [props.canvasKind]);
+
+  useEffect(() => {
+    if (!props.activeProjectId || !canvasApiReady) return;
+    if (activeProject.id === props.activeProjectId && !activeProject.draft) return;
+    if (!projects.some((project) => project.id === props.activeProjectId)) return;
+    void openProject(props.activeProjectId, { allowDirty: activeProject.draft && !dirty, silent: true });
+  }, [activeProject.draft, activeProject.id, canvasApiReady, dirty, projects, props.activeProjectId]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -5564,15 +5929,50 @@ function FreeCanvasWorkspace(props: {
     };
   });
 
+  useEffect(() => {
+    if (!props.autoSaveSettings.enabled || !canvasApiReady || !dirty || busy || autoSaveStatus === "saving") return;
+    const timer = window.setTimeout(() => {
+      void autoSaveProject();
+    }, props.autoSaveSettings.delayMs);
+    return () => window.clearTimeout(timer);
+  }, [
+    activeProject,
+    autoSaveStatus,
+    busy,
+    canvasApiReady,
+    dirty,
+    exportFormat,
+    pan,
+    props.autoSaveSettings.delayMs,
+    props.autoSaveSettings.enabled,
+    selectedIds,
+    showGrid,
+    snapToGrid,
+    zoom
+  ]);
+
+  useEffect(() => {
+    if (!activeProject.draft || activeProject.nodes.length > 0) return;
+    const frame = window.requestAnimationFrame(fitCanvasToView);
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeProject.id, activeProject.draft, activeProject.nodes.length, stageSize.width, stageSize.height]);
+
+  useEffect(() => {
+    if (tool !== "eraser") {
+      setEraserPoint(null);
+    }
+  }, [tool]);
+
   function refreshProjects(nextActive?: CanvasProject) {
     if (!canvasApiReady) {
       setMessage("自由画布接口还未加载。请重新构建主进程并重启软件。");
       return Promise.resolve();
     }
     return window.productStudio.listCanvasProjects().then((items) => {
-      setProjects(items);
+      setProjects(items.filter((item) => item.canvasKind === props.canvasKind));
       if (nextActive) {
-        setActiveProject(nextActive);
+        setActiveProject({ ...nextActive, draft: false });
+        props.onActiveProjectIdChange(nextActive.id);
         setDirty(false);
       }
     });
@@ -5607,12 +6007,12 @@ function FreeCanvasWorkspace(props: {
     setDirty(true);
   }
 
-  async function openProject(projectId: string) {
+  async function openProject(projectId: string, options?: { allowDirty?: boolean; silent?: boolean }) {
     if (!canvasApiReady) {
       setMessage("自由画布接口还未加载。请重新构建主进程并重启软件。");
       return;
     }
-    if (dirty) {
+    if (dirty && !options?.allowDirty) {
       setMessage("当前画布有未保存更改，请先保存再切换项目。");
       return;
     }
@@ -5623,16 +6023,25 @@ function FreeCanvasWorkspace(props: {
         setMessage("画布项目不存在。");
         return;
       }
+      const viewport = viewportRef.current;
+      const fallbackZoom =
+        viewport
+          ? clamp(Math.min((viewport.clientWidth - 120) / project.width, (viewport.clientHeight - 120) / project.height), 0.18, 1.6)
+          : 0.55;
       setActiveProject(project);
-      setZoom(project.viewport?.zoom ?? 0.55);
-      setPan({ x: project.viewport?.panX ?? 160, y: project.viewport?.panY ?? 60 });
+      setZoom(project.viewport?.zoom ?? fallbackZoom);
+      setPan({
+        x: project.viewport?.panX ?? (viewport ? (viewport.clientWidth - project.width * fallbackZoom) / 2 : 160),
+        y: project.viewport?.panY ?? (viewport ? (viewport.clientHeight - project.height * fallbackZoom) / 2 : 60)
+      });
       setShowGrid(project.gridEnabled ?? true);
       setSnapToGrid(project.snapEnabled ?? true);
       setSelectedIds((project.selectedNodeIds ?? []).filter((nodeId) => project.nodes.some((node) => node.id === nodeId)));
       setUndoStack([]);
       setRedoStack([]);
       setDirty(false);
-      setMessage("已打开画布项目。");
+      props.onActiveProjectIdChange(project.id);
+      if (!options?.silent) setMessage("已打开画布项目。");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "打开画布项目失败。");
     } finally {
@@ -5645,7 +6054,7 @@ function FreeCanvasWorkspace(props: {
       setMessage("当前画布有未保存更改，请先保存再新建。");
       return;
     }
-    setActiveProject(createDraftCanvasProject());
+    setActiveProject(createDraftCanvasProject(props.canvasKind));
     setSelectedIds([]);
     setZoom(0.55);
     setPan({ x: 160, y: 60 });
@@ -5654,6 +6063,7 @@ function FreeCanvasWorkspace(props: {
     setUndoStack([]);
     setRedoStack([]);
     setDirty(false);
+    props.onActiveProjectIdChange(null);
     setMessage("已新建空白自由画布。");
   }
 
@@ -5667,6 +6077,7 @@ function FreeCanvasWorkspace(props: {
       const thumbnailDataUrl = createCanvasDataUrl("png", 0.18);
       const saved = await window.productStudio.saveCanvasProject({
         id: activeProject.draft ? undefined : activeProject.id,
+        canvasKind: props.canvasKind,
         title: activeProject.title,
         width: activeProject.width,
         height: activeProject.height,
@@ -5680,11 +6091,42 @@ function FreeCanvasWorkspace(props: {
       });
       await refreshProjects(saved);
       setActiveProject({ ...saved, draft: false });
+      props.onActiveProjectIdChange(saved.id);
       setMessage("自由画布已保存。");
+      setAutoSaveStatus("saved");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "保存自由画布失败。");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function autoSaveProject() {
+    if (!canvasApiReady || !dirty || busy) return;
+    setAutoSaveStatus("saving");
+    try {
+      const thumbnailDataUrl = createCanvasDataUrl("png", 0.18);
+      const saved = await window.productStudio.saveCanvasProject({
+        id: activeProject.draft ? undefined : activeProject.id,
+        canvasKind: props.canvasKind,
+        title: activeProject.title,
+        width: activeProject.width,
+        height: activeProject.height,
+        background: activeProject.background,
+        nodes: activeProject.nodes,
+        viewport: { zoom, panX: pan.x, panY: pan.y },
+        gridEnabled: showGrid,
+        snapEnabled: snapToGrid,
+        selectedNodeIds: selectedIds,
+        thumbnailDataUrl
+      });
+      await refreshProjects(saved);
+      setActiveProject({ ...saved, draft: false });
+      props.onActiveProjectIdChange(saved.id);
+      setAutoSaveStatus("saved");
+    } catch (error) {
+      setAutoSaveStatus("failed");
+      setMessage(error instanceof Error ? error.message : "自动保存自由画布失败。");
     }
   }
 
@@ -5697,6 +6139,7 @@ function FreeCanvasWorkspace(props: {
     try {
       const duplicated = await window.productStudio.duplicateCanvasProject(projectId);
       await refreshProjects(duplicated);
+      props.onActiveProjectIdChange(duplicated.id);
       setMessage("已复制画布项目。");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "复制画布项目失败。");
@@ -5715,9 +6158,10 @@ function FreeCanvasWorkspace(props: {
       await window.productStudio.deleteCanvasProject(projectId);
       await refreshProjects();
       if (activeProject.id === projectId) {
-        setActiveProject(createDraftCanvasProject());
+        setActiveProject(createDraftCanvasProject(props.canvasKind));
         setSelectedIds([]);
         setDirty(false);
+        props.onActiveProjectIdChange(null);
       }
       setMessage("画布项目已删除。");
     } catch (error) {
@@ -5889,27 +6333,27 @@ function FreeCanvasWorkspace(props: {
   }
 
   function addShapeNode(shapeType: CanvasShapeNode["shapeType"], point?: { x: number; y: number }) {
-    const x = point?.x ?? activeProject.width / 2 - 120;
-    const y = point?.y ?? activeProject.height / 2 - 90;
+    const start = point ?? { x: activeProject.width / 2 - 120, y: activeProject.height / 2 - 90 };
+    const geometry = getCanvasShapeGeometry(shapeType, start, start, true);
     commitNodes((nodes) => [
       ...nodes,
       {
         id: createCanvasId(),
         type: "shape",
         shapeType,
-        name: shapeType === "circle" ? "圆形" : shapeType === "arrow" ? "箭头" : shapeType === "line" ? "线条" : "矩形",
-        x,
-        y,
-        width: shapeType === "line" || shapeType === "arrow" ? 260 : 240,
-        height: shapeType === "line" || shapeType === "arrow" ? 0 : 180,
+        name: getCanvasShapeLabel(shapeType),
+        x: geometry.x,
+        y: geometry.y,
+        width: geometry.width,
+        height: geometry.height,
         rotation: 0,
         opacity: 1,
         locked: false,
         visible: true,
-        fill: shapeType === "line" || shapeType === "arrow" ? "transparent" : "#f4d7ad",
+        fill: isOpenCanvasShape(shapeType) ? "transparent" : "#f4d7ad",
         stroke: "#b66c32",
         strokeWidth: 4,
-        cornerRadius: shapeType === "rect" ? 18 : 999
+        cornerRadius: getCanvasShapeCornerRadius(shapeType)
       }
     ]);
   }
@@ -5982,7 +6426,7 @@ function FreeCanvasWorkspace(props: {
         opacity: 1,
         locked: false,
         visible: true,
-        prompt: aiPrompt,
+        prompt: "商品主图，柔和棚拍光线，高级质感",
         status: "draft",
         sourceNodeIds: selectedIds
       }
@@ -6021,6 +6465,74 @@ function FreeCanvasWorkspace(props: {
     });
   }
 
+  function createShapeNodeFromDrag(shapeType: CanvasShapeNode["shapeType"], start: CanvasPoint, end = start, finalize = false): CanvasShapeNode {
+    const geometry = getCanvasShapeGeometry(shapeType, start, end, finalize);
+    return {
+      id: createCanvasId(),
+      type: "shape",
+      shapeType,
+      name: getCanvasShapeLabel(shapeType),
+      x: geometry.x,
+      y: geometry.y,
+      width: geometry.width,
+      height: geometry.height,
+      rotation: 0,
+      opacity: 1,
+      locked: false,
+      visible: true,
+      fill: isOpenCanvasShape(shapeType) ? "transparent" : "#f4d7ad",
+      stroke: "#b66c32",
+      strokeWidth: 4,
+      cornerRadius: getCanvasShapeCornerRadius(shapeType)
+    };
+  }
+
+  function updateShapeDraft(point: CanvasPoint, finalize = false) {
+    const draft = shapeDraftRef.current;
+    if (!draft) return;
+    const geometry = getCanvasShapeGeometry(draft.shapeType, draft.start, point, finalize);
+    setActiveProject((current) => ({
+      ...current,
+      nodes: current.nodes.map((node) => (node.id === draft.id && node.type === "shape" ? { ...node, ...geometry } : node)),
+      updatedAt: new Date().toISOString()
+    }));
+    setDirty(true);
+  }
+
+  function getEraserRadius() {
+    return Math.max(brushSize, 24 / zoom);
+  }
+
+  function eraseFreehandNodesAtPoint(point: CanvasPoint) {
+    const eraserRadius = getEraserRadius();
+    setActiveProject((current) => {
+      let changed = 0;
+      const nextNodes = current.nodes.flatMap((node): CanvasNode[] => {
+        if ((node.type !== "draw" && node.type !== "freehand") || !node.visible || node.locked) return [node];
+        const eraserBounds = {
+          x: point.x - eraserRadius - node.strokeWidth,
+          y: point.y - eraserRadius - node.strokeWidth,
+          width: (eraserRadius + node.strokeWidth) * 2,
+          height: (eraserRadius + node.strokeWidth) * 2
+        };
+        if (!rectanglesIntersect(eraserBounds, getFreehandBounds(node.points, node.strokeWidth))) return [node];
+        const segments = splitPolylineByCircle(node.points, point, eraserRadius);
+        if (segments.length === 1 && segments[0].length === node.points.length) return [node];
+        changed += 1;
+        return segments.map((points, index) => ({
+          ...node,
+          id: index === 0 ? node.id : createCanvasId(),
+          name: index === 0 ? node.name : `${node.name} 片段`,
+          points
+        }));
+      });
+      if (changed === 0) return current;
+      eraserChangedRef.current += changed;
+      return { ...current, nodes: nextNodes, updatedAt: new Date().toISOString() };
+    });
+    setDirty(true);
+  }
+
   function handleStageMouseDown(event: Konva.KonvaEventObject<globalThis.MouseEvent>) {
     const stage = visibleStageRef.current;
     if (!stage) return;
@@ -6033,6 +6545,7 @@ function FreeCanvasWorkspace(props: {
       }
       return;
     }
+    if (event.evt.button !== 0) return;
     const isStageClick = event.target === stage || event.target.name() === "canvas-background";
     const point = getCanvasPoint(stage, pan, zoom);
     if (!point) return;
@@ -6041,33 +6554,41 @@ function FreeCanvasWorkspace(props: {
       setTool("select");
       return;
     }
-    if (tool === "note") {
-      addNoteNode(point);
-      setTool("select");
-      return;
-    }
-    if (tool === "rect" || tool === "circle" || tool === "line" || tool === "arrow") {
-      addShapeNode(tool, point);
-      setTool("select");
-      return;
-    }
-    if (tool === "connector") {
-      addConnectorNode(point);
-      setTool("select");
-      return;
-    }
-    if (tool === "aiTask") {
-      addAiTaskNode(point);
-      setTool("select");
-      return;
-    }
-    if (tool === "brush" || tool === "eraser") {
+    if (tool === "shape") {
       rememberSnapshot();
       setIsDrawing(true);
+      const draftNode = createShapeNodeFromDrag(selectedShapeType, point);
+      shapeDraftRef.current = {
+        id: draftNode.id,
+        shapeType: selectedShapeType,
+        start: point
+      };
+      replaceNodes([...activeProject.nodes, draftNode]);
+      setSelectedIds([draftNode.id]);
+      return;
+    }
+    if (tool === "eraser") {
+      rememberSnapshot();
+      eraserChangedRef.current = 0;
+      setIsDrawing(true);
+      setEraserPoint(point);
+      eraseFreehandNodesAtPoint(point);
+      return;
+    }
+    if (tool === "brush") {
+      rememberSnapshot();
+      setIsDrawing(true);
+      const drawNodeId = createCanvasId();
+      drawingRef.current = {
+        id: drawNodeId,
+        tool,
+        points: [point.x, point.y],
+        strokeWidth: brushSize
+      };
       const drawNode: CanvasNode = {
-        id: createCanvasId(),
+        id: drawNodeId,
         type: "freehand",
-        name: tool === "eraser" ? "橡皮擦" : "画笔",
+        name: "画笔",
         x: 0,
         y: 0,
         width: activeProject.width,
@@ -6077,9 +6598,9 @@ function FreeCanvasWorkspace(props: {
         locked: false,
         visible: true,
         points: [point.x, point.y],
-        stroke: tool === "eraser" ? "#ffffff" : brushColor,
+        stroke: brushColor,
         strokeWidth: brushSize,
-        compositeOperation: tool === "eraser" ? "destination-out" : "source-over"
+        compositeOperation: "source-over"
       };
       replaceNodes([...activeProject.nodes, drawNode]);
       return;
@@ -6106,16 +6627,28 @@ function FreeCanvasWorkspace(props: {
       setLastPanPoint(pointer);
       return;
     }
+    const point = getCanvasPoint(stage, pan, zoom);
+    if (!point) return;
+    if (tool === "eraser") {
+      setEraserPoint(point);
+      if (isDrawing) {
+        eraseFreehandNodesAtPoint(point);
+      }
+      return;
+    }
     if (selectionStartRef.current) {
-      const point = getCanvasPoint(stage, pan, zoom);
-      if (!point) return;
       const start = selectionStartRef.current;
       setSelectionBox(normalizeSelectionBox(start, point));
       return;
     }
     if (!isDrawing) return;
-    const point = getCanvasPoint(stage, pan, zoom);
-    if (!point) return;
+    if (shapeDraftRef.current) {
+      updateShapeDraft(point);
+      return;
+    }
+    if (drawingRef.current) {
+      drawingRef.current.points = [...drawingRef.current.points, point.x, point.y];
+    }
     setActiveProject((current) => {
       const nextNodes = current.nodes.map((node, index) => {
         if (index !== current.nodes.length - 1 || (node.type !== "draw" && node.type !== "freehand")) return node;
@@ -6127,9 +6660,23 @@ function FreeCanvasWorkspace(props: {
   }
 
   function handleStageMouseUp(event?: Konva.KonvaEventObject<globalThis.MouseEvent>) {
+    const wasDrawing = isDrawing;
+    drawingRef.current = null;
     setIsPanning(false);
     setLastPanPoint(null);
     setIsDrawing(false);
+    if (shapeDraftRef.current) {
+      const stage = visibleStageRef.current;
+      const point = stage ? getCanvasPoint(stage, pan, zoom) : null;
+      updateShapeDraft(point ?? shapeDraftRef.current.start, true);
+      shapeDraftRef.current = null;
+      setTool("select");
+      return;
+    }
+    if (wasDrawing && tool === "eraser") {
+      setMessage(eraserChangedRef.current > 0 ? `已擦除 ${eraserChangedRef.current} 段画笔笔迹。` : "没有擦到画笔笔迹。");
+      return;
+    }
     if (selectionStartRef.current && selectionBox) {
       const hasArea = Math.abs(selectionBox.width) > 8 || Math.abs(selectionBox.height) > 8;
       if (hasArea) {
@@ -6384,10 +6931,65 @@ function FreeCanvasWorkspace(props: {
     leftPanelOpen ? "canvas-left-open" : "canvas-left-closed",
     rightPanelOpen ? "canvas-right-open" : "canvas-right-closed"
   ].join(" ");
+  const canvasToolItems: Array<{ id: CanvasTool; label: string; icon: JSX.Element }> = [
+    { id: "select", label: "选择", icon: <MousePointer2 size={16} /> },
+    { id: "pan", label: "拖动", icon: <Move size={16} /> },
+    { id: "text", label: "文字", icon: <Edit3 size={16} /> },
+    { id: "shape", label: "图形", icon: <Shapes size={16} /> },
+    { id: "brush", label: "画笔", icon: <Brush size={16} /> },
+    { id: "eraser", label: "橡皮", icon: <Eraser size={16} /> }
+  ];
+  const canvasShapeToolItems: Array<{ id: CanvasShapeTool; label: string; icon: JSX.Element }> = [
+    { id: "rect", label: "矩形", icon: <Square size={15} /> },
+    { id: "circle", label: "圆形", icon: <CircleAlert size={15} /> },
+    { id: "line", label: "线条", icon: <RectangleHorizontal size={15} /> },
+    { id: "arrow", label: "箭头", icon: <ArrowRight size={15} /> },
+    { id: "triangle", label: "三角形", icon: <Triangle size={15} /> },
+    { id: "diamond", label: "菱形", icon: <Diamond size={15} /> }
+  ];
+
+  function startPanelResize(event: PointerEvent<HTMLButtonElement>, side: keyof PersonalCanvasPanelWidths) {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidths = panelWidths;
+    const handleMove = (moveEvent: globalThis.PointerEvent) => {
+      const delta = moveEvent.clientX - startX;
+      const nextWidths =
+        side === "left"
+          ? { ...startWidths, left: startWidths.left + delta }
+          : { ...startWidths, right: startWidths.right - delta };
+      const clamped = clampPersonalCanvasPanelWidths(nextWidths);
+      setPanelWidths(clamped);
+      persistPersonalCanvasPanelWidths(clamped);
+    };
+    const handleUp = () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+    };
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp, { once: true });
+  }
 
   return (
-    <section className={workspaceClassName}>
-      <aside className={`canvas-side-panel canvas-projects-panel ${leftPanelOpen ? "" : "collapsed"}`}>
+    <section
+      className={workspaceClassName}
+      style={
+        {
+          "--personal-left": leftPanelOpen ? `${panelWidths.left}px` : "0px",
+          "--personal-right": rightPanelOpen ? `${panelWidths.right}px` : "0px"
+        } as CSSProperties
+      }
+    >
+      <aside
+        className={`canvas-side-panel canvas-projects-panel ${leftPanelOpen ? "" : "collapsed"}`}
+        style={{ width: panelWidths.left, maxWidth: panelWidths.left }}
+      >
+        <button
+          className="canvas-panel-resizer right"
+          type="button"
+          aria-label="调整素材面板宽度"
+          onPointerDown={(event) => startPanelResize(event, "left")}
+        />
         <div className="canvas-panel-heading">
           <strong>画布项目</strong>
           <button className="icon-button" onClick={createProject} title="新建画布" disabled={busy}>
@@ -6398,57 +7000,64 @@ function FreeCanvasWorkspace(props: {
           {projects.length === 0 ? (
             <div className="canvas-empty-note">暂无已保存项目。保存当前画布后会出现在这里。</div>
           ) : (
-            projects.map((project) => (
-              <article
-                key={project.id}
-                className={`canvas-project-card ${activeProject.id === project.id ? "active" : ""}`}
-              >
-                <button onClick={() => void openProject(project.id)} disabled={busy}>
-                  {project.thumbnailPath ? (
-                    <img src={window.productStudio.toFileUrl(project.thumbnailPath)} alt={project.title} />
-                  ) : (
-                    <span className="canvas-project-placeholder">
-                      <PenLine size={20} />
+            projects.map((project) => {
+              const isActiveProjectCard = activeProject.id === project.id;
+              return (
+                <article
+                  key={project.id}
+                  className={`canvas-project-card ${isActiveProjectCard ? "active" : ""}`}
+                >
+                  <button onClick={() => void openProject(project.id)} disabled={busy}>
+                    {project.thumbnailPath ? (
+                      <img src={window.productStudio.toFileUrl(project.thumbnailPath)} alt={project.title} />
+                    ) : (
+                      <span className="canvas-project-placeholder">
+                        <PenLine size={20} />
+                      </span>
+                    )}
+                    <span>
+                      <strong>{project.title}</strong>
+                      <small>
+                        {project.width} x {project.height}
+                      </small>
                     </span>
-                  )}
-                  <span>
-                    <strong>{project.title}</strong>
-                    <small>
-                      {project.width} x {project.height}
-                    </small>
-                  </span>
-                </button>
-                <div className="canvas-project-actions">
-                  <button className="icon-button" onClick={() => void duplicateProject(project.id)} title="复制项目">
-                    <Copy size={14} />
                   </button>
-                  <button className="icon-button danger" onClick={() => void deleteProject(project.id)} title="删除项目">
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              </article>
-            ))
+                  <div className="canvas-project-actions">
+                    <button
+                      className="icon-button"
+                      onClick={undoCanvas}
+                      title="撤销当前项目"
+                      disabled={!isActiveProjectCard || undoStack.length === 0 || busy}
+                    >
+                      <RotateCcw size={14} />
+                    </button>
+                    <button
+                      className="icon-button"
+                      onClick={redoCanvas}
+                      title="重做当前项目"
+                      disabled={!isActiveProjectCard || redoStack.length === 0 || busy}
+                    >
+                      <Redo2 size={14} />
+                    </button>
+                    <button className="icon-button" onClick={() => void duplicateProject(project.id)} title="复制项目">
+                      <Copy size={14} />
+                    </button>
+                    <button className="icon-button danger" onClick={() => void deleteProject(project.id)} title="删除项目">
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </article>
+              );
+            })
           )}
         </div>
 
         <div className="canvas-panel-heading">
           <strong>工具</strong>
         </div>
-        <div className="canvas-tool-grid">
-          {[
-            { id: "select", label: "选择", icon: <MousePointer2 size={16} /> },
-            { id: "pan", label: "拖动", icon: <Move size={16} /> },
-            { id: "text", label: "文字", icon: <Edit3 size={16} /> },
-            { id: "note", label: "便签", icon: <RectangleVertical size={16} /> },
-            { id: "rect", label: "矩形", icon: <Square size={16} /> },
-            { id: "circle", label: "圆形", icon: <CircleAlert size={16} /> },
-            { id: "line", label: "线条", icon: <RectangleHorizontal size={16} /> },
-            { id: "arrow", label: "箭头", icon: <ArrowRight size={16} /> },
-            { id: "connector", label: "连接", icon: <MapPin size={16} /> },
-            { id: "brush", label: "画笔", icon: <Brush size={16} /> },
-            { id: "eraser", label: "橡皮", icon: <Eraser size={16} /> },
-            { id: "aiTask", label: "AI节点", icon: <Sparkles size={16} /> }
-          ].map((item) => (
+        <div className="canvas-tool-section">
+          <div className="canvas-tool-grid">
+          {canvasToolItems.map((item) => (
             <button
               key={item.id}
               className={tool === item.id ? "active" : ""}
@@ -6459,17 +7068,35 @@ function FreeCanvasWorkspace(props: {
               <span>{item.label}</span>
             </button>
           ))}
-        </div>
-
-        <div className="canvas-ai-seed">
-          <label>
-            AI 节点提示词
-            <textarea value={aiPrompt} onChange={(event) => setAiPrompt(event.target.value)} />
-          </label>
-          <button className="secondary-button" type="button" onClick={() => addAiTaskNode()}>
-            <Sparkles size={14} />
-            插入任务节点
-          </button>
+          </div>
+          {tool === "shape" ? (
+            <div className="canvas-shape-picker" aria-label="图形类型">
+              {canvasShapeToolItems.map((item) => (
+                <button
+                  key={item.id}
+                  className={selectedShapeType === item.id ? "active" : ""}
+                  onClick={() => {
+                    setSelectedShapeType(item.id);
+                    setTool("shape");
+                  }}
+                  type="button"
+                >
+                  {item.icon}
+                  <span>{item.label}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <div className="canvas-tool-grid canvas-history-tool-grid">
+            <button onClick={undoCanvas} disabled={undoStack.length === 0 || busy} type="button">
+              <RotateCcw size={16} />
+              <span>撤销</span>
+            </button>
+            <button onClick={redoCanvas} disabled={redoStack.length === 0 || busy} type="button">
+              <Redo2 size={16} />
+              <span>重做</span>
+            </button>
+          </div>
         </div>
 
         <div className="canvas-panel-heading">
@@ -6524,18 +7151,13 @@ function FreeCanvasWorkspace(props: {
             </button>
           </div>
           <div className="canvas-topbar-actions">
+            <div className="canvas-action-cluster">
             <button className="secondary-button" onClick={props.onExit} type="button">
               <ArrowLeft size={15} />
               退出画布
             </button>
-            <button className="secondary-button" onClick={undoCanvas} disabled={undoStack.length === 0 || busy}>
-              <RotateCcw size={15} />
-              撤销
-            </button>
-            <button className="secondary-button" onClick={redoCanvas} disabled={redoStack.length === 0 || busy}>
-              <Redo2 size={15} />
-              重做
-            </button>
+            </div>
+            <div className="canvas-action-cluster">
             <button className="secondary-button" onClick={() => setZoom((value) => clamp(value - 0.1, 0.18, 2.2))}>
               <ZoomOut size={15} />
             </button>
@@ -6546,24 +7168,8 @@ function FreeCanvasWorkspace(props: {
             <button className="secondary-button" onClick={fitCanvasToView} type="button">
               适配
             </button>
-            <button className="secondary-button" onClick={() => setZoom(1)} type="button">
-              100%
-            </button>
-            <label className="canvas-inline-toggle">
-              <input type="checkbox" checked={showGrid} onChange={(event) => setShowGrid(event.target.checked)} />
-              网格
-            </label>
-            <label className="canvas-inline-toggle">
-              <input type="checkbox" checked={snapToGrid} onChange={(event) => setSnapToGrid(event.target.checked)} />
-              吸附
-            </label>
-            <select value={exportFormat} onChange={(event) => setExportFormat(event.target.value as ExportFormat)}>
-              {canvasExportFormats.map((format) => (
-                <option key={format} value={format}>
-                  {format.toUpperCase()}
-                </option>
-              ))}
-            </select>
+            </div>
+            <div className="canvas-action-cluster">
             <button className="secondary-button" onClick={() => void exportCanvas()} disabled={busy}>
               <Download size={15} />
               导出
@@ -6576,6 +7182,7 @@ function FreeCanvasWorkspace(props: {
               <Save size={15} />
               {dirty ? "保存*" : "保存"}
             </button>
+            </div>
           </div>
         </div>
 
@@ -6597,7 +7204,16 @@ function FreeCanvasWorkspace(props: {
             onMouseDown={handleStageMouseDown}
             onMouseMove={handleStageMouseMove}
             onMouseUp={handleStageMouseUp}
-            onMouseLeave={handleStageMouseUp}
+            onMouseEnter={() => {
+              if (tool !== "eraser") return;
+              const stage = visibleStageRef.current;
+              const point = stage ? getCanvasPoint(stage, pan, zoom) : null;
+              if (point) setEraserPoint(point);
+            }}
+            onMouseLeave={(event) => {
+              handleStageMouseUp(event);
+              setEraserPoint(null);
+            }}
             onWheel={handleWheel}
             onContextMenu={handleStageContextMenu}
           >
@@ -6640,10 +7256,24 @@ function FreeCanvasWorkspace(props: {
                   listening={false}
                 />
               ) : null}
+              {tool === "eraser" && eraserPoint ? (
+                <KonvaCircle
+                  x={eraserPoint.x}
+                  y={eraserPoint.y}
+                  radius={getEraserRadius()}
+                  fill="rgba(154, 58, 36, 0.14)"
+                  stroke="rgba(154, 58, 36, 0.9)"
+                  strokeWidth={Math.max(1.5 / zoom, 1)}
+                  dash={[6, 4]}
+                  listening={false}
+                />
+              ) : null}
               <Transformer
                 ref={transformerRef}
                 rotateEnabled
-                enabledAnchors={["top-left", "top-right", "bottom-left", "bottom-right", "middle-left", "middle-right"]}
+                keepRatio
+                flipEnabled={false}
+                enabledAnchors={["top-left", "top-right", "bottom-left", "bottom-right"]}
                 boundBoxFunc={(_oldBox, newBox) => (newBox.width < 12 || newBox.height < 12 ? _oldBox : newBox)}
               />
             </Layer>
@@ -6651,15 +7281,12 @@ function FreeCanvasWorkspace(props: {
           {activeProject.nodes.length === 0 ? (
             <div className="canvas-empty-overlay">
               <strong>把图片拖到这里开始</strong>
-              <span>也可以从左侧图库、工具栏或右键菜单添加文字、便签、形状和 AI 任务节点。</span>
+              <span>也可以从左侧图库、工具栏或右键菜单添加文字、图片、形状和画笔内容。</span>
             </div>
           ) : null}
           {contextMenu ? (
             <div className="canvas-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }}>
               <button onClick={() => { addTextNode({ x: contextMenu.canvasX, y: contextMenu.canvasY }); setContextMenu(null); }}>添加文字</button>
-              <button onClick={() => { addNoteNode({ x: contextMenu.canvasX, y: contextMenu.canvasY }); setContextMenu(null); }}>添加便签</button>
-              <button onClick={() => { addConnectorNode({ x: contextMenu.canvasX, y: contextMenu.canvasY }); setContextMenu(null); }}>添加连接线</button>
-              <button onClick={() => { addAiTaskNode({ x: contextMenu.canvasX, y: contextMenu.canvasY }); setContextMenu(null); }}>添加 AI 节点</button>
               <button onClick={() => { void addLocalImage({ x: contextMenu.canvasX, y: contextMenu.canvasY }); setContextMenu(null); }}>导入图片到这里</button>
               <hr />
               <button onClick={() => { duplicateSelectedNodes(); setContextMenu(null); }} disabled={selectedIds.length === 0}>复制所选</button>
@@ -6673,7 +7300,16 @@ function FreeCanvasWorkspace(props: {
         </div>
       </section>
 
-      <aside className={`canvas-side-panel canvas-inspector-panel ${rightPanelOpen ? "" : "collapsed"}`}>
+      <aside
+        className={`canvas-side-panel canvas-inspector-panel ${rightPanelOpen ? "" : "collapsed"}`}
+        style={{ width: panelWidths.right, maxWidth: panelWidths.right }}
+      >
+        <button
+          className="canvas-panel-resizer left"
+          type="button"
+          aria-label="调整属性面板宽度"
+          onPointerDown={(event) => startPanelResize(event, "right")}
+        />
         <CanvasLayerPanel
           nodes={activeProject.nodes}
           selectedIds={selectedIds}
@@ -6694,9 +7330,15 @@ function FreeCanvasWorkspace(props: {
           selectedCount={selectedIds.length}
           brushColor={brushColor}
           brushSize={brushSize}
+          showGrid={showGrid}
+          snapToGrid={snapToGrid}
+          exportFormat={exportFormat}
           onProjectChange={updateProjectPatch}
           onBrushColorChange={setBrushColor}
           onBrushSizeChange={setBrushSize}
+          onShowGridChange={setShowGrid}
+          onSnapToGridChange={setSnapToGrid}
+          onExportFormatChange={setExportFormat}
           onNodeCommit={(patch) => {
             if (!singleSelectedNode) return;
             rememberSnapshot();
@@ -6737,6 +7379,1799 @@ function FreeCanvasWorkspace(props: {
     </section>
   );
 }
+
+function InfiniteCanvasWorkspace(props: {
+  galleryItems: PersonalGalleryItem[];
+  autoSaveSettings: CanvasAutoSaveSettings;
+  activeProjectId: string | null;
+  onActiveProjectIdChange: (projectId: string | null) => void;
+  onGalleryItemAdded: (item: PersonalGalleryItem) => void;
+  onPreviewImage: (image: PreviewImage) => void;
+  onRefreshStatus: () => void;
+  onExit: () => void;
+}) {
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const infinitePanRef = useRef<InfinitePanState | null>(null);
+  const initialViewportAppliedRef = useRef(false);
+  const restoringProjectIdRef = useRef<string | null>(null);
+  const pendingInfiniteMoveSnapshotRef = useRef<InfiniteCanvasSnapshot | null>(null);
+  const dragNodeIdRef = useRef<string | null>(null);
+  const latestInfiniteSaveRef = useRef<{
+    project: CanvasDraftProject;
+    viewport: InfiniteViewportState;
+    canvasApiReady: boolean;
+    busy: boolean;
+  } | null>(null);
+  const onActiveInfiniteProjectIdChangeRef = useRef(props.onActiveProjectIdChange);
+  const [projects, setProjects] = useState<CanvasProjectSummary[]>([]);
+  const [activeProject, setActiveProject] = useState<CanvasDraftProject>(() => createInfiniteDraftCanvasProject());
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [connectingPort, setConnectingPort] = useState<{
+    nodeId: string;
+    port: string;
+    dataType: InfiniteCanvasPortType;
+  } | null>(null);
+  const [nodeContextMenu, setNodeContextMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [undoStack, setUndoStack] = useState<InfiniteCanvasSnapshot[]>([]);
+  const [redoStack, setRedoStack] = useState<InfiniteCanvasSnapshot[]>([]);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<AutoSaveStatus>("idle");
+  const [infiniteViewport, setInfiniteViewport] = useState<InfiniteViewportState>({ panX: 0, panY: 0, zoom: 1 });
+  const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
+  const [layout, setLayout] = useState<InfiniteCanvasLayout>(() => readInfiniteCanvasLayout());
+  const [taskQueueOpen, setTaskQueueOpen] = useState(false);
+  const workflowNodes = activeProject.workflowNodes ?? [];
+  const workflowEdges = activeProject.workflowEdges ?? [];
+  const workflowQueue = activeProject.workflowQueue ?? [];
+  const selectedNode = workflowNodes.find((node) => node.id === selectedNodeId) ?? null;
+  const canvasApiReady =
+    typeof window.productStudio.listCanvasProjects === "function" &&
+    typeof window.productStudio.saveCanvasProject === "function";
+
+  useEffect(() => {
+    onActiveInfiniteProjectIdChangeRef.current = props.onActiveProjectIdChange;
+  }, [props.onActiveProjectIdChange]);
+
+  useEffect(() => {
+    latestInfiniteSaveRef.current = {
+      project: activeProject,
+      viewport: infiniteViewport,
+      canvasApiReady,
+      busy
+    };
+  }, [activeProject, busy, canvasApiReady, infiniteViewport]);
+
+  useEffect(() => {
+    return () => {
+      const state = latestInfiniteSaveRef.current;
+      if (!state?.canvasApiReady || state.busy) return;
+      const project = state.project;
+      const hasContent =
+        project.nodes.length > 0 ||
+        (project.workflowNodes?.length ?? 0) > 0 ||
+        (project.workflowEdges?.length ?? 0) > 0 ||
+        (project.workflowQueue?.length ?? 0) > 0;
+      if (project.draft && !hasContent) return;
+      void window.productStudio
+        .saveCanvasProject({
+          id: project.draft ? undefined : project.id,
+          canvasKind: "infinite",
+          title: project.title,
+          width: project.width,
+          height: project.height,
+          background: project.background,
+          nodes: project.nodes,
+          workflowNodes: project.workflowNodes ?? [],
+          workflowEdges: project.workflowEdges ?? [],
+          workflowQueue: project.workflowQueue ?? [],
+          viewport: state.viewport
+        })
+        .then((saved) => onActiveInfiniteProjectIdChangeRef.current(saved.id))
+        .catch(() => undefined);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!canvasApiReady) {
+      setMessage("无限画布接口还未加载。请重新构建主进程并重启软件。");
+      return;
+    }
+    let mounted = true;
+    window.productStudio
+      .listCanvasProjects()
+      .then((items) => {
+        if (mounted) setProjects(items.filter((item) => item.canvasKind === "infinite"));
+      })
+      .catch((error) => {
+        if (mounted) setMessage(error instanceof Error ? error.message : "读取无限画布项目失败。");
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [canvasApiReady]);
+
+  useEffect(() => {
+    if (!props.activeProjectId || !canvasApiReady) return;
+    if (activeProject.id === props.activeProjectId && !activeProject.draft) return;
+    if (restoringProjectIdRef.current === props.activeProjectId) return;
+    restoringProjectIdRef.current = props.activeProjectId;
+    void openProject(props.activeProjectId, { allowDirty: activeProject.draft && !dirty, silent: true, clearMissing: true }).finally(() => {
+      if (restoringProjectIdRef.current === props.activeProjectId) {
+        restoringProjectIdRef.current = null;
+      }
+    });
+  }, [activeProject.draft, activeProject.id, canvasApiReady, dirty, props.activeProjectId]);
+
+  useEffect(() => {
+    initialViewportAppliedRef.current = false;
+  }, [activeProject.id]);
+
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const updateSize = () => {
+      setStageSize({
+        width: stage.clientWidth,
+        height: stage.clientHeight
+      });
+    };
+    updateSize();
+    const observer = new ResizeObserver(updateSize);
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (initialViewportAppliedRef.current) return;
+    if (workflowNodes.length === 0) return;
+    if (stageSize.width <= 0 || stageSize.height <= 0) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (activeProject.viewport && !activeProject.draft) {
+        setInfiniteViewport(normalizeSavedInfiniteViewport(activeProject.viewport, workflowNodes, stageSize));
+      } else {
+        setInfiniteViewport(getFittedInfiniteViewport(workflowNodes, stageSize));
+      }
+      initialViewportAppliedRef.current = true;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeProject.draft, activeProject.id, activeProject.viewport, stageSize, workflowNodes]);
+
+  useEffect(() => {
+    if (!props.autoSaveSettings.enabled || !canvasApiReady || !dirty || busy || autoSaveStatus === "saving") return;
+    const timer = window.setTimeout(() => {
+      void autoSaveInfiniteProject();
+    }, props.autoSaveSettings.delayMs);
+    return () => window.clearTimeout(timer);
+  }, [
+    activeProject,
+    autoSaveStatus,
+    busy,
+    canvasApiReady,
+    dirty,
+    infiniteViewport,
+    props.autoSaveSettings.delayMs,
+    props.autoSaveSettings.enabled,
+    workflowEdges,
+    workflowNodes,
+    workflowQueue
+  ]);
+
+  function refreshProjects(nextActive?: CanvasProject) {
+    if (!canvasApiReady) return Promise.resolve();
+    return window.productStudio.listCanvasProjects().then((items) => {
+      setProjects(items.filter((item) => item.canvasKind === "infinite"));
+      if (nextActive) {
+        setActiveProject({ ...nextActive, draft: false });
+        props.onActiveProjectIdChange(nextActive.id);
+        setDirty(false);
+      }
+    });
+  }
+
+  function buildInfiniteSaveRequest(project: CanvasDraftProject) {
+    return {
+      id: project.draft ? undefined : project.id,
+      canvasKind: "infinite" as const,
+      title: project.title,
+      width: project.width,
+      height: project.height,
+      background: project.background,
+      nodes: project.nodes,
+      workflowNodes: project.workflowNodes ?? [],
+      workflowEdges: project.workflowEdges ?? [],
+      workflowQueue: project.workflowQueue ?? [],
+      viewport: getCurrentInfiniteViewport()
+    };
+  }
+
+  function snapshotInfiniteProject(): InfiniteCanvasSnapshot {
+    return {
+      title: activeProject.title,
+      workflowNodes: workflowNodes.map((node) => ({ ...node })),
+      workflowEdges: workflowEdges.map((edge) => ({ ...edge })),
+      workflowQueue: workflowQueue.map((item) => ({ ...item })),
+      viewport: getCurrentInfiniteViewport(),
+      selectedNodeId
+    };
+  }
+
+  function rememberInfiniteSnapshot(snapshot = snapshotInfiniteProject()) {
+    setUndoStack((current) => [...current.slice(-39), snapshot]);
+    setRedoStack([]);
+    setDirty(true);
+  }
+
+  function restoreInfiniteSnapshot(snapshot: InfiniteCanvasSnapshot) {
+    const nextNodes = snapshot.workflowNodes.map((node) => ({ ...node }));
+    const nodeIds = new Set(nextNodes.map((node) => node.id));
+    setActiveProject((current) => ({
+      ...current,
+      title: snapshot.title,
+      workflowNodes: nextNodes,
+      workflowEdges: snapshot.workflowEdges.map((edge) => ({ ...edge })),
+      workflowQueue: snapshot.workflowQueue.map((item) => ({ ...item })),
+      viewport: snapshot.viewport,
+      updatedAt: new Date().toISOString()
+    }));
+    setInfiniteViewport(snapshot.viewport);
+    setSelectedNodeId(snapshot.selectedNodeId && nodeIds.has(snapshot.selectedNodeId) ? snapshot.selectedNodeId : null);
+    setConnectingPort(null);
+    initialViewportAppliedRef.current = true;
+    setDirty(true);
+  }
+
+  function undoInfiniteCanvas() {
+    setUndoStack((current) => {
+      const previous = current[current.length - 1];
+      if (!previous) return current;
+      setRedoStack((redo) => [...redo, snapshotInfiniteProject()]);
+      restoreInfiniteSnapshot(previous);
+      return current.slice(0, -1);
+    });
+  }
+
+  function redoInfiniteCanvas() {
+    setRedoStack((current) => {
+      const next = current[current.length - 1];
+      if (!next) return current;
+      setUndoStack((undo) => [...undo, snapshotInfiniteProject()]);
+      restoreInfiniteSnapshot(next);
+      return current.slice(0, -1);
+    });
+  }
+
+  async function checkpointInfiniteProject(
+    project: CanvasDraftProject,
+    options?: { silent?: boolean; message?: string; refreshStatus?: boolean }
+  ) {
+    if (!canvasApiReady) return null;
+    setAutoSaveStatus("saving");
+    try {
+      const saved = await window.productStudio.saveCanvasProject(buildInfiniteSaveRequest(project));
+      await refreshProjects(saved);
+      props.onActiveProjectIdChange(saved.id);
+      setAutoSaveStatus("saved");
+      if (options?.message) setMessage(options.message);
+      if (options?.refreshStatus) props.onRefreshStatus();
+      return saved;
+    } catch (error) {
+      setAutoSaveStatus("failed");
+      if (!options?.silent) {
+        setMessage(error instanceof Error ? error.message : "保存无限画布失败。");
+      }
+      return null;
+    }
+  }
+
+  function fitInfiniteCanvasToView(nodes = workflowNodes) {
+    if (nodes.length === 0 || stageSize.width <= 0 || stageSize.height <= 0) return;
+    setInfiniteViewport(getFittedInfiniteViewport(nodes, stageSize));
+  }
+
+  function getCurrentInfiniteViewport() {
+    return {
+      zoom: infiniteViewport.zoom,
+      panX: infiniteViewport.panX,
+      panY: infiniteViewport.panY
+    };
+  }
+
+  function getCurrentInfiniteContentOrigin() {
+    return {
+      x: -infiniteViewport.panX / infiniteViewport.zoom,
+      y: -infiniteViewport.panY / infiniteViewport.zoom
+    };
+  }
+
+  function updateInfiniteZoom(nextZoom: number, anchor?: { clientX: number; clientY: number }) {
+    const stage = stageRef.current;
+    const zoom = clamp(nextZoom, 0.25, 2.2);
+    if (!stage) {
+      setInfiniteViewport((current) => ({ ...current, zoom }));
+      return;
+    }
+    const rect = stage.getBoundingClientRect();
+    const anchorX = anchor ? anchor.clientX - rect.left : stage.clientWidth / 2;
+    const anchorY = anchor ? anchor.clientY - rect.top : stage.clientHeight / 2;
+    setInfiniteViewport((current) => {
+      const contentX = (anchorX - current.panX) / current.zoom;
+      const contentY = (anchorY - current.panY) / current.zoom;
+      return {
+        zoom,
+        panX: snapToDevicePixel(anchorX - contentX * zoom),
+        panY: snapToDevicePixel(anchorY - contentY * zoom)
+      };
+    });
+  }
+
+  function handleInfiniteWheel(event: WheelEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const scaleBy = event.deltaY > 0 ? 0.9 : 1.1;
+    updateInfiniteZoom(infiniteViewport.zoom * scaleBy, { clientX: event.clientX, clientY: event.clientY });
+  }
+
+  function startInfinitePan(event: PointerEvent<HTMLDivElement>) {
+    if (
+      event.target instanceof Element &&
+      event.target.closest(".canvas-context-menu, .infinite-node-card, .infinite-minimap, button, input, textarea, select")
+    ) {
+      return;
+    }
+    setNodeContextMenu(null);
+    if (event.button !== 0 && event.button !== 1) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    infinitePanRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originPanX: infiniteViewport.panX,
+      originPanY: infiniteViewport.panY
+    };
+  }
+
+  function moveInfinitePan(event: PointerEvent<HTMLDivElement>) {
+    const panState = infinitePanRef.current;
+    if (!panState || panState.pointerId !== event.pointerId) return;
+    setInfiniteViewport((current) => ({
+      ...current,
+      panX: snapToDevicePixel(panState.originPanX + event.clientX - panState.startX),
+      panY: snapToDevicePixel(panState.originPanY + event.clientY - panState.startY)
+    }));
+  }
+
+  function finishInfinitePan(event: PointerEvent<HTMLDivElement>) {
+    if (infinitePanRef.current?.pointerId !== event.pointerId) return;
+    infinitePanRef.current = null;
+  }
+
+  function moveInfiniteViewportToWorldPoint(worldX: number, worldY: number) {
+    if (stageSize.width <= 0 || stageSize.height <= 0) return;
+    setInfiniteViewport((current) => ({
+      ...current,
+      panX: snapToDevicePixel(stageSize.width / 2 - worldX * current.zoom),
+      panY: snapToDevicePixel(stageSize.height / 2 - worldY * current.zoom)
+    }));
+  }
+
+  function getInfiniteScreenNodeRect(node: InfiniteCanvasWorkflowNode) {
+    const zoom = infiniteViewport.zoom;
+    const size = getInfiniteNodeRenderSize(node);
+    return {
+      x: snapToDevicePixel(infiniteViewport.panX + node.x * zoom),
+      y: snapToDevicePixel(infiniteViewport.panY + node.y * zoom),
+      width: size.width,
+      height: size.height
+    };
+  }
+
+  function getInfiniteScreenPortPoint(node: InfiniteCanvasWorkflowNode, portId: string, fallbackDirection: "in" | "out") {
+    const size = getInfiniteNodeRenderSize(node);
+    const port = getInfiniteNodePorts(node.kind).find((item) => item.id === portId);
+    const direction = port?.direction ?? fallbackDirection;
+    const ratio = getInfinitePortPositionRatio(node.kind, portId, direction);
+    return {
+      x: snapToDevicePixel(infiniteViewport.panX + (node.x + (direction === "in" ? 0 : size.width)) * infiniteViewport.zoom),
+      y: snapToDevicePixel(infiniteViewport.panY + (node.y + size.height * ratio) * infiniteViewport.zoom)
+    };
+  }
+
+  function handleMiniMapPointer(event: PointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    const track = event.currentTarget.querySelector(".infinite-minimap-track");
+    if (!(track instanceof HTMLElement)) return;
+
+    const updateFromPointer = (pointerEvent: globalThis.PointerEvent | PointerEvent<HTMLDivElement>) => {
+      const rect = track.getBoundingClientRect();
+      const ratioX = clamp((pointerEvent.clientX - rect.left) / rect.width, 0, 1);
+      const ratioY = clamp((pointerEvent.clientY - rect.top) / rect.height, 0, 1);
+      moveInfiniteViewportToWorldPoint(ratioX * infiniteCanvasSize.width, ratioY * infiniteCanvasSize.height);
+    };
+
+    updateFromPointer(event);
+    const handleMove = (moveEvent: globalThis.PointerEvent) => updateFromPointer(moveEvent);
+    const handleUp = () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+    };
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp, { once: true });
+  }
+
+  function startInfiniteLayoutResize(event: PointerEvent<HTMLButtonElement>, side: keyof InfiniteCanvasLayout) {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startLayout = layout;
+    const handleMove = (moveEvent: globalThis.PointerEvent) => {
+      const delta = moveEvent.clientX - startX;
+      const nextLayout =
+        side === "left"
+          ? { ...startLayout, left: startLayout.left + delta }
+          : { ...startLayout, right: startLayout.right - delta };
+      const clamped = clampInfiniteCanvasLayout(nextLayout);
+      setLayout(clamped);
+      persistInfiniteCanvasLayout(clamped);
+    };
+    const handleUp = () => {
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+    };
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp, { once: true });
+  }
+
+  function updateWorkflow(
+    nodes: InfiniteCanvasWorkflowNode[],
+    edges = workflowEdges,
+    queue = workflowQueue,
+    options?: { remember?: boolean }
+  ) {
+    if (options?.remember !== false) {
+      rememberInfiniteSnapshot();
+    }
+    setActiveProject((current) => ({
+      ...current,
+      workflowNodes: nodes,
+      workflowEdges: edges,
+      workflowQueue: queue,
+      updatedAt: new Date().toISOString()
+    }));
+    setDirty(true);
+  }
+
+  function addWorkflowNode(kind: InfiniteCanvasNodeKind) {
+    const template = infiniteNodeTemplates.find((item) => item.kind === kind) ?? infiniteNodeTemplates[0];
+    const index = workflowNodes.length;
+    const modelSelection = getDefaultInfiniteModelSelection(kind);
+    const preset = productShotPresets.find((item) => item.id === template.defaultPresetId);
+    const viewport = getCurrentInfiniteContentOrigin();
+    const imageGenerationKinds: InfiniteCanvasNodeKind[] = ["imageToImage", "textToImage"];
+    const textConfigKinds: InfiniteCanvasNodeKind[] = ["promptExtract", "imageToImage", "textToImage", "video"];
+    const configKinds: InfiniteCanvasNodeKind[] = [...imageGenerationKinds, "video"];
+    const nodeBase: InfiniteCanvasWorkflowNode = {
+      id: createCanvasId(),
+      kind,
+      title: template.label,
+      x: Math.round(viewport.x + 140 + (index % 4) * 220),
+      y: Math.round(viewport.y + 110 + Math.floor(index / 4) * 160),
+      width: kind === "upload" || kind === "export" ? 170 : 190,
+      height: kind === "upload" || kind === "export" || kind === "result" ? 170 : configKinds.includes(kind) ? 216 : 140,
+      status: kind === "upload" ? "idle" : "ready"
+    };
+    const node: InfiniteCanvasWorkflowNode = {
+      ...nodeBase,
+      ...(textConfigKinds.includes(kind) ? { prompt: template.defaultPrompt } : {}),
+      ...(kind === "note" ? { note: template.defaultPrompt } : {}),
+      ...(configKinds.includes(kind)
+        ? {
+            providerId: modelSelection.providerId,
+            modelId: modelSelection.modelId,
+            aspectRatio: preset?.defaultAspectRatio ?? "1:1",
+            outputCount: 1
+          }
+        : {}),
+      ...(imageGenerationKinds.includes(kind)
+        ? {
+            presetId: template.defaultPresetId,
+            exportFormat: "png" as const
+          }
+        : {})
+    };
+    updateWorkflow([...workflowNodes, node]);
+    setSelectedNodeId(node.id);
+  }
+
+  async function attachImageToNode(nodeId: string) {
+    try {
+      const imported = await window.productStudio.selectImage();
+      if (!imported) return;
+      rememberInfiniteSnapshot();
+      const nextNodes = workflowNodes.map((node) =>
+        node.id === nodeId
+          ? {
+              ...node,
+              sourcePath: imported.sourceImagePath,
+              resultPath: imported.sourceImagePath,
+              status: "done" as const,
+              title: node.kind === "upload" ? "上传原图" : node.title
+            }
+          : node
+      );
+      const nextProject = {
+        ...activeProject,
+        workflowNodes: nextNodes,
+        updatedAt: new Date().toISOString()
+      };
+      setActiveProject(nextProject);
+      setDirty(true);
+      setMessage("图片已放入节点。");
+      void checkpointInfiniteProject(nextProject, { message: "图片已放入节点并保存。" });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "上传图片失败。");
+    }
+  }
+
+  function startMoveNode(event: PointerEvent<HTMLElement>, nodeId: string) {
+    event.stopPropagation();
+    if (event.button !== 0) return;
+    if (event.target instanceof Element && event.target.closest("button, input, textarea, select")) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    pendingInfiniteMoveSnapshotRef.current = snapshotInfiniteProject();
+    dragNodeIdRef.current = nodeId;
+    setSelectedNodeId(nodeId);
+  }
+
+  function moveNode(event: PointerEvent<HTMLElement>, nodeId: string) {
+    if (dragNodeIdRef.current !== nodeId) return;
+    if (pendingInfiniteMoveSnapshotRef.current) {
+      rememberInfiniteSnapshot(pendingInfiniteMoveSnapshotRef.current);
+      pendingInfiniteMoveSnapshotRef.current = null;
+    }
+    updateWorkflow(
+      workflowNodes.map((node) =>
+        node.id === nodeId
+          ? {
+              ...node,
+              x: Math.round((node.x + event.movementX / infiniteViewport.zoom) / 8) * 8,
+              y: Math.round((node.y + event.movementY / infiniteViewport.zoom) / 8) * 8
+            }
+          : node
+      ),
+      workflowEdges,
+      workflowQueue,
+      { remember: false }
+    );
+  }
+
+  function finishMoveNode() {
+    pendingInfiniteMoveSnapshotRef.current = null;
+    dragNodeIdRef.current = null;
+  }
+
+  function handlePortClick(node: InfiniteCanvasWorkflowNode, port: ReturnType<typeof getInfiniteNodePorts>[number]) {
+    setNodeContextMenu(null);
+    if (port.direction === "out") {
+      setConnectingPort({ nodeId: node.id, port: port.id, dataType: port.dataType });
+      setMessage(`已选择输出端口：${node.title} / ${port.label}`);
+      return;
+    }
+    if (!connectingPort) {
+      setMessage("请先点击一个输出端口，再连接到输入端口。");
+      return;
+    }
+    if (connectingPort.nodeId === node.id) {
+      setMessage("不能把节点连接到自己。");
+      setConnectingPort(null);
+      return;
+    }
+    if (connectingPort.dataType !== port.dataType && connectingPort.dataType !== "bundle" && port.dataType !== "bundle") {
+      setMessage("端口类型不匹配。");
+      return;
+    }
+    const edge: InfiniteCanvasWorkflowEdge = {
+      id: createCanvasId(),
+      fromNodeId: connectingPort.nodeId,
+      fromPort: connectingPort.port,
+      toNodeId: node.id,
+      toPort: port.id,
+      dataType: port.dataType
+    };
+    const nextEdges = workflowEdges.filter(
+      (item) => !(item.toNodeId === edge.toNodeId && item.toPort === edge.toPort)
+    );
+    rememberInfiniteSnapshot();
+    setActiveProject((current) => ({
+      ...current,
+      workflowEdges: [...nextEdges, edge],
+      updatedAt: new Date().toISOString()
+    }));
+    setConnectingPort(null);
+    setDirty(true);
+  }
+
+  function updateSelectedNode(patch: Partial<InfiniteCanvasWorkflowNode>) {
+    if (!selectedNode) return;
+    updateWorkflow(workflowNodes.map((node) => (node.id === selectedNode.id ? { ...node, ...patch } : node)));
+  }
+
+  function deleteWorkflowNode(nodeId: string | null) {
+    if (!nodeId) return;
+    rememberInfiniteSnapshot();
+    setActiveProject((current) => ({
+      ...current,
+      workflowNodes: (current.workflowNodes ?? []).filter((node) => node.id !== nodeId),
+      workflowEdges: (current.workflowEdges ?? []).filter((edge) => edge.fromNodeId !== nodeId && edge.toNodeId !== nodeId),
+      workflowQueue: (current.workflowQueue ?? []).filter((item) => item.nodeId !== nodeId),
+      updatedAt: new Date().toISOString()
+    }));
+    if (selectedNodeId === nodeId) setSelectedNodeId(null);
+    setNodeContextMenu(null);
+    setDirty(true);
+  }
+
+  function deleteSelectedNode() {
+    deleteWorkflowNode(selectedNodeId);
+  }
+
+  async function openProject(projectId: string, options?: { allowDirty?: boolean; silent?: boolean; clearMissing?: boolean }) {
+    if (!canvasApiReady) return;
+    setBusy(true);
+    try {
+      if (dirty && !options?.allowDirty) {
+        setMessage("正在保存当前无限画布并切换项目。");
+        const saved = await checkpointInfiniteProject(activeProject, { silent: true });
+        if (!saved) {
+          setMessage("当前无限画布保存失败，未切换项目。");
+          return;
+        }
+      }
+      const project = await window.productStudio.getCanvasProject(projectId);
+      if (!project || project.canvasKind !== "infinite") {
+        setMessage("无限画布项目不存在。");
+        if (options?.clearMissing) {
+          setActiveProject(createInfiniteDraftCanvasProject());
+          setSelectedNodeId(null);
+          setUndoStack([]);
+          setRedoStack([]);
+          setDirty(false);
+          initialViewportAppliedRef.current = false;
+          props.onActiveProjectIdChange(null);
+        }
+        return;
+      }
+      setActiveProject({ ...project, draft: false });
+      setInfiniteViewport(project.viewport ? normalizeSavedInfiniteViewport(project.viewport, project.workflowNodes ?? [], stageSize) : { panX: 0, panY: 0, zoom: 1 });
+      setSelectedNodeId(null);
+      setUndoStack([]);
+      setRedoStack([]);
+      setDirty(false);
+      initialViewportAppliedRef.current = false;
+      props.onActiveProjectIdChange(project.id);
+      if (!options?.silent) setMessage("已打开无限画布项目。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "打开无限画布失败。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function createProject() {
+    if (dirty) {
+      setMessage("当前无限画布有未保存更改，请先保存再新建。");
+      return;
+    }
+    setActiveProject(createInfiniteDraftCanvasProject());
+    setInfiniteViewport({ panX: 0, panY: 0, zoom: 1 });
+    setSelectedNodeId(null);
+    setUndoStack([]);
+    setRedoStack([]);
+    setDirty(false);
+    initialViewportAppliedRef.current = false;
+    props.onActiveProjectIdChange(null);
+  }
+
+  async function duplicateProject(projectId: string) {
+    if (!canvasApiReady) return;
+    setBusy(true);
+    try {
+      const duplicated = await window.productStudio.duplicateCanvasProject(projectId);
+      await refreshProjects(duplicated);
+      props.onActiveProjectIdChange(duplicated.id);
+      setUndoStack([]);
+      setRedoStack([]);
+      initialViewportAppliedRef.current = false;
+      setMessage("已复制无限画布项目。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "复制无限画布项目失败。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteProject(projectId: string) {
+    if (!canvasApiReady) return;
+    setBusy(true);
+    try {
+      await window.productStudio.deleteCanvasProject(projectId);
+      await refreshProjects();
+      if (activeProject.id === projectId) {
+        setActiveProject(createInfiniteDraftCanvasProject());
+        setSelectedNodeId(null);
+        setUndoStack([]);
+        setRedoStack([]);
+        setDirty(false);
+        props.onActiveProjectIdChange(null);
+        initialViewportAppliedRef.current = false;
+      }
+      setMessage("无限画布项目已删除。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "删除无限画布项目失败。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveProject() {
+    if (!canvasApiReady) return;
+    setBusy(true);
+    try {
+      await checkpointInfiniteProject(activeProject, { message: "无限画布已保存。" });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "保存无限画布失败。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function autoSaveInfiniteProject() {
+    if (!canvasApiReady || !dirty || busy) return;
+    await checkpointInfiniteProject(activeProject, { silent: false });
+  }
+
+  async function runWorkflow() {
+    if (workflowNodes.length === 0) {
+      setMessage("请先从左侧添加节点。");
+      return;
+    }
+    rememberInfiniteSnapshot();
+    const executableNodes = workflowNodes.filter((node) =>
+      ["promptExtract", "productShot", "imageToImage", "textToImage", "video", "detailPage", "export"].includes(node.kind)
+    );
+    const queue: InfiniteCanvasQueueItem[] = executableNodes.map((node) => ({
+      id: createCanvasId(),
+      nodeId: node.id,
+      title: node.title,
+      status: "ready",
+      detail: "等待运行"
+    }));
+    setActiveProject((current) => ({ ...current, workflowQueue: queue }));
+    setBusy(true);
+    setMessage("工作流开始运行。");
+    let latestNodes = workflowNodes;
+    let latestEdges = workflowEdges;
+    let latestQueue = [...queue];
+    try {
+      let nextNodes = latestNodes;
+      let nextEdges = latestEdges;
+      const nextQueue = [...queue];
+      for (const item of nextQueue) {
+        const node = nextNodes.find((candidate) => candidate.id === item.nodeId);
+        if (!node) continue;
+        item.status = "running";
+        item.detail = "运行中";
+        nextNodes = nextNodes.map((candidate) =>
+          candidate.id === node.id ? { ...candidate, status: "running" as const, error: undefined } : candidate
+        );
+        latestNodes = nextNodes;
+        latestEdges = nextEdges;
+        latestQueue = [...nextQueue];
+        setActiveProject((current) => ({ ...current, workflowNodes: nextNodes, workflowQueue: [...nextQueue] }));
+        if (node.kind === "productShot" || node.kind === "imageToImage") {
+          const sourcePath = resolveWorkflowImageInput(node.id, nextNodes, nextEdges);
+          if (!sourcePath) throw new Error(`${node.title} 缺少图片输入。`);
+          const resultNode = await runProductShotNode(node, sourcePath);
+          nextNodes = [
+            ...nextNodes.map((candidate) =>
+              candidate.id === node.id
+                ? { ...candidate, status: "done" as const, resultPath: resultNode.resultPath, jobId: resultNode.jobId }
+                : candidate
+            ),
+            resultNode
+          ];
+          nextEdges = [
+            ...nextEdges,
+            {
+              id: createCanvasId(),
+              fromNodeId: node.id,
+              fromPort: "out",
+              toNodeId: resultNode.id,
+              toPort: "in",
+              dataType: "image"
+            }
+          ];
+        } else {
+          await new Promise((resolve) => window.setTimeout(resolve, 240));
+          nextNodes = nextNodes.map((candidate) => (candidate.id === node.id ? { ...candidate, status: "done" as const } : candidate));
+        }
+        item.status = "done";
+        item.detail = "已完成";
+        latestNodes = nextNodes;
+        latestEdges = nextEdges;
+        latestQueue = [...nextQueue];
+        setActiveProject((current) => ({
+          ...current,
+          workflowNodes: nextNodes,
+          workflowEdges: nextEdges,
+          workflowQueue: [...nextQueue],
+          updatedAt: new Date().toISOString()
+        }));
+      }
+      setDirty(true);
+      const nextProject = {
+        ...activeProject,
+        workflowNodes: nextNodes,
+        workflowEdges: nextEdges,
+        workflowQueue: nextQueue,
+        updatedAt: new Date().toISOString()
+      };
+      setActiveProject(nextProject);
+      await checkpointInfiniteProject(nextProject, {
+        message: "工作流运行完成并已保存。",
+        refreshStatus: true
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "工作流运行失败。";
+      const failedProject = {
+        ...activeProject,
+        workflowNodes: latestNodes,
+        workflowEdges: latestEdges,
+        workflowQueue: latestQueue.map((item) =>
+          item.status === "running" ? { ...item, status: "failed" as const, detail } : item
+        ),
+        updatedAt: new Date().toISOString()
+      };
+      setActiveProject(failedProject);
+      setDirty(true);
+      void checkpointInfiniteProject(failedProject, { silent: true });
+      setMessage(detail);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function runProductShotNode(node: InfiniteCanvasWorkflowNode, sourcePath: string): Promise<InfiniteCanvasWorkflowNode> {
+    const modelSelection = getCompatibleInfiniteModelSelection(node, getInfiniteModelOptionsForNodeKind(node.kind));
+    const job = await window.productStudio.generateProductShots({
+      sourceImagePath: sourcePath,
+      providerId: modelSelection.providerId,
+      modelId: modelSelection.modelId,
+      presetIds: [node.presetId ?? "scene"],
+      fidelity: "balanced",
+      productBrief: node.prompt || undefined,
+      outputCount: node.outputCount ?? 1,
+      aspectRatio: node.aspectRatio ?? "1:1",
+      exportFormat: node.exportFormat ?? "png"
+    });
+    const result = job.results[0];
+    if (!result) {
+      throw new Error(`${node.title} 未返回生成结果。`);
+    }
+    return {
+      id: createCanvasId(),
+      kind: "result",
+      title: "生成结果",
+      x: node.x + 260,
+      y: node.y + 22,
+      width: 190,
+      height: 190,
+      status: "done",
+      resultPath: result.imagePath,
+      sourcePath: result.imagePath,
+      jobId: job.id,
+      prompt: result.promptUsed,
+      providerId: result.providerId,
+      modelId: result.modelId,
+      presetId: result.presetId,
+      exportFormat: "png"
+    };
+  }
+
+  function resolveWorkflowImageInput(nodeId: string, nodes: InfiniteCanvasWorkflowNode[], edges: InfiniteCanvasWorkflowEdge[]) {
+    const inputEdge = edges.find((edge) => edge.toNodeId === nodeId && edge.dataType === "image");
+    if (!inputEdge) return undefined;
+    const sourceNode = nodes.find((node) => node.id === inputEdge.fromNodeId);
+    return sourceNode?.resultPath || sourceNode?.sourcePath;
+  }
+
+  function createInfiniteNodePreviewImage(node: InfiniteCanvasWorkflowNode): PreviewImage | null {
+    const imagePath = node.resultPath || node.sourcePath;
+    if (!imagePath) return null;
+    const modelLabel =
+      node.providerId && node.modelId
+        ? `${getProviderDisplayName(node.providerId)} / ${getModelDisplayName(node.providerId, node.modelId)}`
+        : "无限画布素材";
+    return {
+      src: window.productStudio.toFileUrl(imagePath),
+      filePath: imagePath,
+      title: node.title || "画布图片",
+      subtitle: modelLabel,
+      fileName: getDisplayFileName(imagePath, `${node.title || "canvas-image"}.png`)
+    };
+  }
+
+  function previewInfiniteNodeImage(node: InfiniteCanvasWorkflowNode) {
+    const preview = createInfiniteNodePreviewImage(node);
+    if (!preview) {
+      setMessage("当前节点还没有可预览的图片。");
+      return;
+    }
+    props.onPreviewImage(preview);
+  }
+
+  async function addInfiniteNodeImageToGallery(node: InfiniteCanvasWorkflowNode) {
+    const imagePath = node.resultPath || node.sourcePath;
+    if (!imagePath) {
+      setMessage("当前节点还没有可加入图库的图片。");
+      return;
+    }
+    if (props.galleryItems.some((item) => item.imagePath === imagePath)) {
+      setMessage("这张图片已经在个人图库中。");
+      return;
+    }
+    try {
+      const item = await window.productStudio.addGalleryItem({
+        imagePath,
+        mediaType: "image",
+        title: node.title || "无限画布结果",
+        providerId: node.providerId,
+        modelId: node.modelId,
+        jobId: node.jobId,
+        presetId: node.presetId
+      });
+      props.onGalleryItemAdded(item);
+      setMessage("已加入个人图库。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "加入个人图库失败。");
+    }
+  }
+
+  function openInfiniteNodeContextMenu(event: MouseEvent<HTMLElement>, node: InfiniteCanvasWorkflowNode) {
+    event.preventDefault();
+    event.stopPropagation();
+    setSelectedNodeId(node.id);
+    setNodeContextMenu({ x: event.clientX, y: event.clientY, nodeId: node.id });
+  }
+
+  const isRestoringSavedInfiniteProject = Boolean(props.activeProjectId && activeProject.id !== props.activeProjectId && activeProject.draft);
+  const edgeLines = isRestoringSavedInfiniteProject
+    ? []
+    : workflowEdges
+        .map((edge) => {
+          const from = workflowNodes.find((node) => node.id === edge.fromNodeId);
+          const to = workflowNodes.find((node) => node.id === edge.toNodeId);
+          if (!from || !to) return null;
+          const start = getInfiniteScreenPortPoint(from, edge.fromPort, "out");
+          const end = getInfiniteScreenPortPoint(to, edge.toPort, "in");
+          return { edge, start, end };
+        })
+        .filter((item): item is NonNullable<typeof item> => Boolean(item));
+  const recentQueueItems = workflowQueue.slice(-4);
+  const miniMapViewport = getInfiniteMiniMapViewport(infiniteViewport, stageSize);
+  const isWorkflowRunning = workflowQueue.some((item) => item.status === "running");
+
+  return (
+    <section
+      className="infinite-canvas-workspace"
+      style={
+        {
+          "--infinite-left": `${layout.left}px`,
+          "--infinite-right": `${layout.right}px`
+        } as CSSProperties
+      }
+    >
+      <aside className="infinite-node-library">
+        <div className="canvas-panel-heading">
+          <strong>节点库</strong>
+          <button className="icon-button" onClick={createProject} title="新建无限画布" disabled={busy}>
+            <Plus size={15} />
+          </button>
+        </div>
+        <div className="infinite-node-list">
+          {infiniteNodeTemplates.map((item) => (
+            <button key={item.kind} onClick={() => addWorkflowNode(item.kind)} type="button">
+              {item.icon}
+              <span>
+                <strong>{item.label}</strong>
+                <small>{item.description}</small>
+              </span>
+            </button>
+          ))}
+        </div>
+        <div className="canvas-panel-heading">
+          <strong>我的项目</strong>
+        </div>
+        <button className="secondary-button infinite-new-project-button" onClick={createProject} type="button" disabled={busy}>
+          <Plus size={15} />
+          新建无限画布
+        </button>
+        <div className="canvas-project-list infinite-project-list">
+          {projects.length === 0 ? (
+            <div className="canvas-empty-note">暂无已保存无限画布。</div>
+          ) : (
+            projects.map((project) => {
+              const isActiveProjectCard = activeProject.id === project.id;
+              return (
+                <article
+                  key={project.id}
+                  className={`infinite-project-card ${isActiveProjectCard ? "active" : ""}`}
+                >
+                  <button className="infinite-project-button" onClick={() => void openProject(project.id)} disabled={busy}>
+                    <PenLine size={14} />
+                    <span>
+                      <strong>{project.title}</strong>
+                      <small>{new Date(project.updatedAt).toLocaleString()}</small>
+                    </span>
+                  </button>
+                  <div className="canvas-project-actions">
+                    <button
+                      className="icon-button"
+                      onClick={undoInfiniteCanvas}
+                      title="撤销当前项目"
+                      disabled={!isActiveProjectCard || undoStack.length === 0 || busy}
+                    >
+                      <RotateCcw size={14} />
+                    </button>
+                    <button
+                      className="icon-button"
+                      onClick={redoInfiniteCanvas}
+                      title="重做当前项目"
+                      disabled={!isActiveProjectCard || redoStack.length === 0 || busy}
+                    >
+                      <Redo2 size={14} />
+                    </button>
+                    <button className="icon-button" onClick={() => void duplicateProject(project.id)} title="复制项目" disabled={busy}>
+                      <Copy size={14} />
+                    </button>
+                    <button className="icon-button danger" onClick={() => void deleteProject(project.id)} title="删除项目" disabled={busy}>
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </article>
+              );
+            })
+          )}
+        </div>
+      </aside>
+      <button
+        className="infinite-column-resizer"
+        type="button"
+        aria-label="调整节点库宽度"
+        onPointerDown={(event) => startInfiniteLayoutResize(event, "left")}
+      />
+
+      <section className="infinite-canvas-main">
+        <div className="infinite-topbar">
+          <button className="secondary-button" onClick={props.onExit} type="button">
+            <ArrowLeft size={15} />
+            退出画布
+          </button>
+          <input
+            className="canvas-title-input"
+            value={activeProject.title}
+            onChange={(event) => {
+              setActiveProject((current) => ({ ...current, title: event.target.value }));
+              setDirty(true);
+            }}
+            aria-label="无限画布标题"
+          />
+          <div className="infinite-task-popover">
+            <button
+              className={`secondary-button infinite-task-trigger ${isWorkflowRunning ? "is-running" : ""}`}
+              type="button"
+              onClick={() => setTaskQueueOpen((value) => !value)}
+            >
+              {isWorkflowRunning ? <Loader2 size={15} /> : <Clock3 size={15} />}
+              任务队列 {workflowQueue.length}
+            </button>
+            {taskQueueOpen ? (
+              <div className="infinite-task-menu">
+                {workflowQueue.length === 0 ? (
+                  <div className="canvas-empty-note">运行工作流后会显示节点任务。</div>
+                ) : (
+                  recentQueueItems.map((item) => (
+                    <article key={item.id} className={`infinite-queue-item status-${item.status}`}>
+                      <strong>{item.title}</strong>
+                      <span>{item.detail || getInfiniteStatusLabel(item.status)}</span>
+                    </article>
+                  ))
+                )}
+              </div>
+            ) : null}
+          </div>
+          <button className="secondary-button" onClick={() => updateInfiniteZoom(infiniteViewport.zoom - 0.1)} type="button">
+            <ZoomOut size={15} />
+          </button>
+          <span className="canvas-zoom-label">{Math.round(infiniteViewport.zoom * 100)}%</span>
+          <button className="secondary-button" onClick={() => updateInfiniteZoom(infiniteViewport.zoom + 0.1)} type="button">
+            <ZoomIn size={15} />
+          </button>
+          <button className="secondary-button" onClick={() => fitInfiniteCanvasToView()} type="button">
+            适配
+          </button>
+          <button className="primary-button" onClick={() => void runWorkflow()} disabled={busy}>
+            <Play size={15} />
+            {busy ? "运行中" : "运行"}
+          </button>
+          <button className="secondary-button" onClick={() => {
+            rememberInfiniteSnapshot();
+            setActiveProject((current) => ({ ...current, workflowEdges: [] }));
+            setConnectingPort(null);
+            setDirty(true);
+          }}>
+            清空连线
+          </button>
+          <button className="secondary-button" onClick={() => void saveProject()} disabled={busy}>
+            <Save size={15} />
+            {dirty ? "保存*" : "保存"}
+          </button>
+        </div>
+        {message ? <div className="canvas-message">{message}</div> : null}
+        <div
+          className="infinite-stage"
+          ref={stageRef}
+          onWheel={handleInfiniteWheel}
+          onPointerDown={startInfinitePan}
+          onPointerMove={moveInfinitePan}
+          onPointerUp={finishInfinitePan}
+          onPointerLeave={finishInfinitePan}
+        >
+            <svg
+              className="infinite-edge-layer"
+              width={stageSize.width}
+              height={stageSize.height}
+              aria-hidden="true"
+            >
+                {edgeLines.map(({ edge, start, end }) => {
+                  const controlDistance = Math.max(72, Math.abs(end.x - start.x) * 0.45);
+                  const startControlX = start.x + controlDistance;
+                  const endControlX = end.x - controlDistance;
+                  return (
+                    <path
+                      key={edge.id}
+                      d={`M ${start.x} ${start.y} C ${startControlX} ${start.y}, ${endControlX} ${end.y}, ${end.x} ${end.y}`}
+                      className="infinite-edge-path"
+                    />
+                  );
+                })}
+            </svg>
+            <div className="infinite-stage-content">
+              {isRestoringSavedInfiniteProject ? (
+                <div className="infinite-empty-state">
+                  <strong>正在恢复无限画布项目</strong>
+                  <span>正在打开上次使用的项目。</span>
+                </div>
+              ) : workflowNodes.length === 0 ? (
+                <div className="infinite-empty-state">
+                  <strong>从左侧添加“上传原图”开始</strong>
+                  <span>像视频里一样，把上传图、AI 节点、详情页和导出节点连接起来，再点击运行。</span>
+                </div>
+              ) : null}
+              {isRestoringSavedInfiniteProject ? null : workflowNodes.map((node) => (
+                <InfiniteWorkflowNodeCard
+                  key={node.id}
+                  node={node}
+                  rect={getInfiniteScreenNodeRect(node)}
+                  zoom={infiniteViewport.zoom}
+                  selected={selectedNodeId === node.id}
+                  connectingPort={connectingPort}
+                  onPointerDown={startMoveNode}
+                  onPointerMove={moveNode}
+                  onPointerUp={finishMoveNode}
+                  onSelect={(nodeId) => {
+                    setNodeContextMenu(null);
+                    setSelectedNodeId(nodeId);
+                  }}
+                  onPortClick={handlePortClick}
+                  onAttachImage={attachImageToNode}
+                  onPreviewImage={previewInfiniteNodeImage}
+                  onAddToGallery={addInfiniteNodeImageToGallery}
+                  onContextMenu={openInfiniteNodeContextMenu}
+                />
+              ))}
+            </div>
+          {nodeContextMenu ? (
+            <div
+              className="canvas-context-menu"
+              style={{ left: nodeContextMenu.x, top: nodeContextMenu.y }}
+              onPointerDown={(event) => event.stopPropagation()}
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <button
+                type="button"
+                className="danger"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  deleteWorkflowNode(nodeContextMenu.nodeId);
+                }}
+              >
+                删除
+              </button>
+            </div>
+          ) : null}
+          <div className="infinite-minimap" onPointerDown={handleMiniMapPointer}>
+            <strong>MAP</strong>
+            <div className="infinite-minimap-track">
+              <span
+                className="infinite-minimap-viewport"
+                style={{
+                  left: `${miniMapViewport.left}%`,
+                  top: `${miniMapViewport.top}%`,
+                  width: `${miniMapViewport.width}%`,
+                  height: `${miniMapViewport.height}%`
+                }}
+              />
+            </div>
+            <span>{isRestoringSavedInfiniteProject ? 0 : workflowNodes.length} 节点 / {isRestoringSavedInfiniteProject ? 0 : workflowEdges.length} 连线</span>
+          </div>
+        </div>
+      </section>
+      <button
+        className="infinite-column-resizer"
+        type="button"
+        aria-label="调整节点配置宽度"
+        onPointerDown={(event) => startInfiniteLayoutResize(event, "right")}
+      />
+
+      <aside className="infinite-inspector">
+        <div className="canvas-panel-heading">
+          <strong>节点配置</strong>
+          {selectedNode ? (
+            <button className="icon-button danger" onClick={deleteSelectedNode} title="删除节点">
+              <Trash2 size={14} />
+            </button>
+          ) : null}
+        </div>
+        {!selectedNode ? (
+          <div className="canvas-empty-note">选择一个节点后，可配置模型、提示词、比例和输出格式。</div>
+        ) : (
+          <InfiniteNodeInspector node={selectedNode} onChange={updateSelectedNode} />
+        )}
+      </aside>
+    </section>
+  );
+}
+
+type InfinitePortConfig = {
+  id: string;
+  label: string;
+  direction: "in" | "out";
+  dataType: InfiniteCanvasPortType;
+};
+
+function InfiniteWorkflowNodeCard(props: {
+  node: InfiniteCanvasWorkflowNode;
+  rect: { x: number; y: number; width: number; height: number };
+  zoom: number;
+  selected: boolean;
+  connectingPort: { nodeId: string; port: string; dataType: InfiniteCanvasPortType } | null;
+  onPointerDown: (event: PointerEvent<HTMLElement>, nodeId: string) => void;
+  onPointerMove: (event: PointerEvent<HTMLElement>, nodeId: string) => void;
+  onPointerUp: () => void;
+  onSelect: (nodeId: string) => void;
+  onPortClick: (node: InfiniteCanvasWorkflowNode, port: InfinitePortConfig) => void;
+  onAttachImage: (nodeId: string) => void;
+  onPreviewImage: (node: InfiniteCanvasWorkflowNode) => void;
+  onAddToGallery: (node: InfiniteCanvasWorkflowNode) => void;
+  onContextMenu: (event: MouseEvent<HTMLElement>, node: InfiniteCanvasWorkflowNode) => void;
+}) {
+  const ports = getInfiniteNodePorts(props.node.kind);
+  const imagePath = props.node.resultPath || props.node.sourcePath;
+  return (
+    <article
+      className={`infinite-node-card node-${props.node.kind} status-${props.node.status} ${props.selected ? "selected" : ""}`}
+      style={
+        {
+          left: 0,
+          top: 0,
+          width: props.rect.width,
+          height: props.rect.height,
+          transform: `translate(${props.rect.x}px, ${props.rect.y}px) scale(${props.zoom})`,
+          transformOrigin: "0 0"
+        } as CSSProperties
+      }
+      onPointerDown={(event) => props.onPointerDown(event, props.node.id)}
+      onPointerMove={(event) => props.onPointerMove(event, props.node.id)}
+      onPointerUp={props.onPointerUp}
+      onClick={() => props.onSelect(props.node.id)}
+      onContextMenu={(event) => props.onContextMenu(event, props.node)}
+    >
+      {ports.map((port) => (
+        <button
+          key={port.id}
+          className={`infinite-port ${port.direction} ${props.connectingPort?.nodeId === props.node.id && props.connectingPort.port === port.id ? "active" : ""}`}
+          style={{ top: `${getInfinitePortPositionRatio(props.node.kind, port.id, port.direction) * 100}%` }}
+          onClick={(event) => {
+            event.stopPropagation();
+            props.onPortClick(props.node, port);
+          }}
+          aria-label={`${props.node.title} ${port.label} ${port.dataType}`}
+          title={`${port.label} / ${port.dataType}`}
+          type="button"
+        />
+      ))}
+      <header>
+        <span>{getInfiniteNodeIcon(props.node.kind)}</span>
+        <div>
+          <strong>{props.node.title}</strong>
+          <small>{getInfiniteStatusLabel(props.node.status)}</small>
+        </div>
+      </header>
+      {imagePath ? (
+        <div className="infinite-node-preview-wrap">
+          <button
+            className="infinite-node-preview-button"
+            onClick={(event) => {
+              event.stopPropagation();
+              props.onPreviewImage(props.node);
+            }}
+            type="button"
+            title="打开预览"
+          >
+            <img className="infinite-node-preview" src={window.productStudio.toFileUrl(imagePath)} alt={props.node.title} />
+          </button>
+          {props.node.kind === "result" ? (
+            <div className="infinite-node-preview-actions">
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  props.onPreviewImage(props.node);
+                }}
+              >
+                预览
+              </button>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void props.onAddToGallery(props.node);
+                }}
+              >
+                入库
+              </button>
+            </div>
+          ) : null}
+        </div>
+      ) : props.node.kind === "upload" ? (
+        <button className="infinite-upload-button" onClick={() => props.onAttachImage(props.node.id)} type="button">
+          <ImagePlus size={17} />
+          上传图片 / SKU
+        </button>
+      ) : props.node.kind === "export" ? (
+        <div className="infinite-export-preview">
+          <Download size={18} />
+          <span>连接结果后导出</span>
+        </div>
+      ) : (
+        <div className="infinite-node-summary">
+          {getInfiniteNodeParameterSummary(props.node).map((item) => (
+            <span key={item}>{item}</span>
+          ))}
+        </div>
+      )}
+      {props.node.error ? <small className="infinite-node-error">{props.node.error}</small> : null}
+    </article>
+  );
+}
+
+function InfiniteNodeInspector(props: {
+  node: InfiniteCanvasWorkflowNode;
+  onChange: (patch: Partial<InfiniteCanvasWorkflowNode>) => void;
+}) {
+  const modelOptions = getInfiniteModelOptionsForNodeKind(props.node.kind);
+  const selectedModel = getCompatibleInfiniteModelSelection(props.node, modelOptions);
+  const selectedPreset = productShotPresets.find((preset) => preset.id === props.node.presetId);
+
+  function handlePresetChange(nextPresetId: PresetId) {
+    const nextPreset = productShotPresets.find((preset) => preset.id === nextPresetId);
+    const nextModel = getCompatibleInfiniteModelSelection({ ...props.node, presetId: nextPresetId }, modelOptions);
+    props.onChange({
+      presetId: nextPresetId,
+      aspectRatio: nextPreset?.defaultAspectRatio ?? props.node.aspectRatio ?? "1:1",
+      providerId: nextModel.providerId,
+      modelId: nextModel.modelId,
+      ...(props.node.manualPromptEdited ? {} : { prompt: nextPreset?.prompt ?? props.node.prompt ?? "" })
+    });
+  }
+
+  function handleModelChange(value: string) {
+    const option = modelOptions.find((item) => getInfiniteModelOptionValue(item) === value);
+    if (!option) return;
+    props.onChange({
+      providerId: option.providerId,
+      modelId: option.modelId
+    });
+  }
+
+  return (
+    <div className="infinite-inspector-form">
+      <label>
+        节点名称
+        <input value={props.node.title} onChange={(event) => props.onChange({ title: event.target.value })} />
+      </label>
+      {["prompt", "promptExtract", "productShot", "imageToImage", "textToImage", "video", "detailPage", "note"].includes(props.node.kind) ? (
+        <label>
+          提示词 / 备注
+          <textarea
+            value={props.node.kind === "note" ? props.node.note ?? props.node.prompt ?? "" : props.node.prompt ?? ""}
+            onChange={(event) =>
+              props.onChange(
+                props.node.kind === "note"
+                  ? { note: event.target.value }
+                  : { prompt: event.target.value, manualPromptEdited: true }
+              )
+            }
+          />
+        </label>
+      ) : null}
+      {["productShot", "imageToImage", "textToImage", "video"].includes(props.node.kind) ? (
+        <>
+          <label>
+            模型
+            <select
+              value={getInfiniteModelOptionValue(selectedModel)}
+              onChange={(event) => handleModelChange(event.target.value)}
+            >
+              {providerOrder.map((id) => (
+                <optgroup key={id} label={providerConfigs[id].displayName}>
+                  {modelOptions
+                    .filter((option) => option.providerId === id)
+                    .map((option) => (
+                      <option key={getInfiniteModelOptionValue(option)} value={getInfiniteModelOptionValue(option)}>
+                        {option.label}
+                      </option>
+                    ))}
+                </optgroup>
+              ))}
+            </select>
+          </label>
+          {props.node.kind !== "video" ? (
+            <>
+              <label>
+                节点能力
+                <select value={props.node.presetId ?? "scene"} onChange={(event) => handlePresetChange(event.target.value as PresetId)}>
+                  {productShotPresets.map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {props.node.manualPromptEdited && selectedPreset?.prompt ? (
+                <button
+                  className="secondary-button infinite-prompt-apply"
+                  type="button"
+                  onClick={() =>
+                    props.onChange({
+                      prompt: selectedPreset.prompt,
+                      aspectRatio: selectedPreset.defaultAspectRatio,
+                      providerId: selectedModel.providerId,
+                      modelId: selectedModel.modelId,
+                      manualPromptEdited: false
+                    })
+                  }
+                >
+                  使用该能力推荐提示词
+                </button>
+              ) : null}
+            </>
+          ) : null}
+          <div className="canvas-field-grid two">
+            <label>
+              比例
+              <input
+                list="infinite-aspect-ratio-options"
+                value={props.node.aspectRatio ?? "1:1"}
+                onChange={(event) => props.onChange({ aspectRatio: event.target.value })}
+                placeholder="如 9:16 或 1024x1024"
+              />
+              <datalist id="infinite-aspect-ratio-options">
+                {manualAspectRatioOptions.map((ratio) => (
+                  <option key={ratio} value={ratio} />
+                ))}
+              </datalist>
+            </label>
+            <label>
+              数量
+              <input type="number" min={1} max={4} value={props.node.outputCount ?? 1} onChange={(event) => props.onChange({ outputCount: Number(event.target.value) })} />
+            </label>
+          </div>
+        </>
+      ) : null}
+      <div className="canvas-field-grid two">
+        <label>
+          X
+          <input type="number" value={Math.round(props.node.x)} onChange={(event) => props.onChange({ x: Number(event.target.value) })} />
+        </label>
+        <label>
+          Y
+          <input type="number" value={Math.round(props.node.y)} onChange={(event) => props.onChange({ y: Number(event.target.value) })} />
+        </label>
+      </div>
+      <div className="canvas-empty-note">端口连接方式：先点输出端口，再点目标节点输入端口。运行时会按连线依次处理。</div>
+    </div>
+  );
+}
+
+function getInfiniteNodePorts(kind: InfiniteCanvasNodeKind): InfinitePortConfig[] {
+  if (kind === "upload") return [{ id: "out", label: "输出", direction: "out", dataType: "image" }];
+  if (kind === "prompt") return [{ id: "out", label: "提示词", direction: "out", dataType: "prompt" }];
+  if (kind === "promptExtract") {
+    return [
+      { id: "in", label: "输入", direction: "in", dataType: "image" },
+      { id: "out", label: "输出", direction: "out", dataType: "prompt" }
+    ];
+  }
+  if (kind === "export") {
+    return [
+      { id: "in", label: "输入", direction: "in", dataType: "bundle" },
+      { id: "out", label: "输出", direction: "out", dataType: "bundle" }
+    ];
+  }
+  if (kind === "result") {
+    return [
+      { id: "in", label: "输入", direction: "in", dataType: "image" },
+      { id: "out", label: "输出", direction: "out", dataType: "image" }
+    ];
+  }
+  if (kind === "video") {
+    return [
+      { id: "in", label: "输入", direction: "in", dataType: "image" },
+      { id: "out", label: "输出", direction: "out", dataType: "video" }
+    ];
+  }
+  if (kind === "detailPage") {
+    return [
+      { id: "in", label: "输入", direction: "in", dataType: "bundle" },
+      { id: "out", label: "输出", direction: "out", dataType: "bundle" }
+    ];
+  }
+  if (kind === "note") return [{ id: "out", label: "文本", direction: "out", dataType: "text" }];
+  return [
+    { id: "in", label: "输入", direction: "in", dataType: "image" },
+    { id: "out", label: "输出", direction: "out", dataType: "image" }
+  ];
+}
+
+function getInfiniteNodeRenderSize(node: InfiniteCanvasWorkflowNode) {
+  const width = Math.max(node.width, node.kind === "upload" || node.kind === "export" ? 170 : 190);
+  const summaryItems = node.resultPath || node.sourcePath || node.kind === "upload" || node.kind === "export"
+    ? []
+    : getInfiniteNodeParameterSummary(node);
+  const hasPreview = Boolean(node.resultPath || node.sourcePath);
+  const summaryHeight = getInfiniteSummaryHeight(summaryItems, width);
+  const previewHeight = hasPreview ? (node.kind === "result" ? 167 : 132) : node.kind === "upload" || node.kind === "export" ? 96 : 0;
+  const bodyHeight = Math.max(summaryHeight, previewHeight);
+  const contentHeight = 20 + 28 + (bodyHeight > 0 ? 8 + bodyHeight : 0);
+  const minHeight = node.kind === "result" ? 223 : node.kind === "upload" || node.kind === "export" ? 152 : 74;
+  return {
+    width,
+    height: Math.ceil(Math.max(minHeight, contentHeight))
+  };
+}
+
+function getInfiniteSummaryHeight(items: string[], nodeWidth: number) {
+  if (items.length === 0) return 0;
+  return items.reduce((total, item) => total + Math.max(27, getInfiniteSummaryLineCount(item, nodeWidth) * 16 + 10), 0) + (items.length - 1) * 5;
+}
+
+function getInfiniteSummaryLineCount(text: string, nodeWidth: number) {
+  const availableWidth = Math.max(72, nodeWidth - 34);
+  const unitsPerLine = Math.max(7, availableWidth / 11);
+  return text.split(/\r?\n/).reduce((total, line) => {
+    const visualUnits = getInfiniteTextVisualUnits(line.trim() || " ");
+    return total + Math.max(1, Math.ceil(visualUnits / unitsPerLine));
+  }, 0);
+}
+
+function getInfiniteTextVisualUnits(text: string) {
+  return Array.from(text).reduce((total, char) => {
+    if (/\s/.test(char)) return total + 0.35;
+    if (/[\u1100-\u11ff\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef]/.test(char)) return total + 1;
+    return total + 0.55;
+  }, 0);
+}
+
+function getInfinitePortPositionRatio(kind: InfiniteCanvasNodeKind, portId: string, direction: "in" | "out") {
+  const ports = getInfiniteNodePorts(kind).filter((port) => port.direction === direction);
+  if (ports.length <= 1) return 0.5;
+  const index = ports.findIndex((port) => port.id === portId);
+  return ((index >= 0 ? index : 0) + 1) / (ports.length + 1);
+}
+
+function getInfiniteWorkflowBounds(nodes: InfiniteCanvasWorkflowNode[]) {
+  const left = Math.min(...nodes.map((node) => node.x));
+  const top = Math.min(...nodes.map((node) => node.y));
+  const right = Math.max(...nodes.map((node) => node.x + getInfiniteNodeRenderSize(node).width));
+  const bottom = Math.max(...nodes.map((node) => node.y + getInfiniteNodeRenderSize(node).height));
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+function getFittedInfiniteViewport(
+  nodes: InfiniteCanvasWorkflowNode[],
+  stageSize: { width: number; height: number }
+): InfiniteViewportState {
+  if (nodes.length === 0 || stageSize.width <= 0 || stageSize.height <= 0) {
+    return { panX: 0, panY: 0, zoom: 1 };
+  }
+  const bounds = getInfiniteWorkflowBounds(nodes);
+  const zoom = clamp(
+    Math.min((stageSize.width - 180) / Math.max(1, bounds.width), (stageSize.height - 180) / Math.max(1, bounds.height)),
+    0.28,
+    1.15
+  );
+  return {
+    zoom,
+    panX: snapToDevicePixel(stageSize.width / 2 - (bounds.x + bounds.width / 2) * zoom),
+    panY: snapToDevicePixel(stageSize.height / 2 - (bounds.y + bounds.height / 2) * zoom)
+  };
+}
+
+function normalizeSavedInfiniteViewport(
+  viewport: { zoom: number; panX: number; panY: number },
+  nodes: InfiniteCanvasWorkflowNode[],
+  stageSize: { width: number; height: number }
+): InfiniteViewportState {
+  const zoom = clamp(Number(viewport.zoom) || 1, 0.25, 2.2);
+  const likelyLegacyScrollViewport =
+    viewport.panX >= 0 &&
+    viewport.panY >= 0 &&
+    nodes.some((node) => node.x > stageSize.width || node.y > stageSize.height);
+  return {
+    zoom,
+    panX: snapToDevicePixel(likelyLegacyScrollViewport ? -viewport.panX : viewport.panX),
+    panY: snapToDevicePixel(likelyLegacyScrollViewport ? -viewport.panY : viewport.panY)
+  };
+}
+
+function getInfiniteMiniMapViewport(
+  viewport: InfiniteViewportState,
+  stageSize: { width: number; height: number }
+) {
+  const visibleWidth = stageSize.width > 0 ? (stageSize.width / viewport.zoom / infiniteCanvasSize.width) * 100 : 18;
+  const visibleHeight = stageSize.height > 0 ? (stageSize.height / viewport.zoom / infiniteCanvasSize.height) * 100 : 18;
+  return {
+    left: clamp((-viewport.panX / viewport.zoom / infiniteCanvasSize.width) * 100, 0, 100),
+    top: clamp((-viewport.panY / viewport.zoom / infiniteCanvasSize.height) * 100, 0, 100),
+    width: clamp(visibleWidth, 8, 100),
+    height: clamp(visibleHeight, 8, 100)
+  };
+}
+
+function getInfiniteModelOptionsForNodeKind(kind: InfiniteCanvasNodeKind): InfiniteModelOption[] {
+  if (kind === "video") {
+    return providerOrder.flatMap((providerId) =>
+      getVideoModelsForProvider(providerId).map((model) => ({
+        providerId,
+        modelId: model.modelId,
+        label: getVideoModelDisplayName(providerId, model.modelId),
+        modelKind: "video" as const
+      }))
+    );
+  }
+  return providerOrder.flatMap((providerId) =>
+    providerConfigs[providerId].models.map((modelId) => ({
+      providerId,
+      modelId,
+      label: getModelDisplayName(providerId, modelId),
+      modelKind: "image" as const
+    }))
+  );
+}
+
+function getDefaultInfiniteModelSelection(kind: InfiniteCanvasNodeKind): InfiniteModelOption {
+  return getInfiniteModelOptionsForNodeKind(kind)[0] ?? {
+    providerId: providerOrder[0],
+    modelId: providerConfigs[providerOrder[0]].defaultModel,
+    label: getModelDisplayName(providerOrder[0], providerConfigs[providerOrder[0]].defaultModel),
+    modelKind: "image"
+  };
+}
+
+function getCompatibleInfiniteModelSelection(
+  node: InfiniteCanvasWorkflowNode,
+  options: InfiniteModelOption[]
+): InfiniteModelOption {
+  const current = options.find((option) => option.providerId === node.providerId && option.modelId === node.modelId);
+  return current ?? options[0] ?? getDefaultInfiniteModelSelection(node.kind);
+}
+
+function getInfiniteModelOptionValue(option: InfiniteModelOption): string {
+  return `${option.providerId}:${option.modelId}`;
+}
+
+function getInfiniteNodeParameterSummary(node: InfiniteCanvasWorkflowNode) {
+  const summary: string[] = [];
+  if (node.kind === "upload") {
+    return [node.sourcePath ? "已上传图片" : getInfiniteNodeDescription(node.kind)];
+  }
+  if (node.kind === "export") {
+    return ["连接结果后导出"];
+  }
+  if (node.kind === "result") {
+    return [node.resultPath || node.sourcePath ? "已生成图片" : "等待生成结果"];
+  }
+  if (node.kind === "note") {
+    const text = (node.note ?? node.prompt ?? "").trim();
+    return [text || getInfiniteNodeDescription(node.kind)];
+  }
+  if (["productShot", "imageToImage", "textToImage", "video"].includes(node.kind)) {
+    const modelOptions = getInfiniteModelOptionsForNodeKind(node.kind);
+    const selectedModel = getCompatibleInfiniteModelSelection(node, modelOptions);
+    summary.push(`${getProviderDisplayName(selectedModel.providerId)} / ${selectedModel.label}`);
+  }
+  if (["productShot", "imageToImage", "textToImage"].includes(node.kind)) {
+    if (node.presetId) summary.push(`能力：${getPresetName(node.presetId)}`);
+    if (node.aspectRatio) summary.push(`比例：${node.aspectRatio}`);
+    if (node.outputCount) summary.push(`数量：${node.outputCount}`);
+    if (node.exportFormat) summary.push(`格式：${node.exportFormat.toUpperCase()}`);
+  }
+  if (node.kind === "video") {
+    if (node.aspectRatio) summary.push(`比例：${node.aspectRatio}`);
+    if (node.outputCount) summary.push(`数量：${node.outputCount}`);
+  }
+  if (node.kind === "prompt" || node.kind === "promptExtract" || node.kind === "detailPage") {
+    const textLength = (node.prompt ?? node.note ?? "").trim().length;
+    summary.push(textLength > 0 ? `文本：${textLength} 字` : getInfiniteNodeDescription(node.kind));
+  }
+  return summary.length > 0 ? summary.slice(0, 5) : [getInfiniteNodeDescription(node.kind)];
+}
+
+function getInfiniteStatusLabel(status: InfiniteCanvasNodeStatus) {
+  const labels: Record<InfiniteCanvasNodeStatus, string> = {
+    idle: "待配置",
+    ready: "待生成",
+    running: "生成中",
+    done: "已完成",
+    failed: "失败"
+  };
+  return labels[status];
+}
+
+function getInfiniteNodeIcon(kind: InfiniteCanvasNodeKind) {
+  if (kind === "upload") return <ImagePlus size={16} />;
+  if (kind === "prompt" || kind === "promptExtract") return <Edit3 size={16} />;
+  if (kind === "video") return <Video size={16} />;
+  if (kind === "export") return <Download size={16} />;
+  if (kind === "detailPage") return <LayoutGrid size={16} />;
+  if (kind === "result") return <Images size={16} />;
+  if (kind === "note") return <PenLine size={16} />;
+  return <Sparkles size={16} />;
+}
+
+function getInfiniteNodeDescription(kind: InfiniteCanvasNodeKind) {
+  return infiniteNodeTemplates.find((item) => item.kind === kind)?.description ?? "AI 工作流节点";
+}
+
+const infiniteNodeTemplates: Array<{
+  kind: InfiniteCanvasNodeKind;
+  label: string;
+  description: string;
+  icon: JSX.Element;
+  defaultPrompt?: string;
+  defaultPresetId?: PresetId;
+}> = [
+  { kind: "upload", label: "上传原图", description: "上传图片 / SKU", icon: <ImagePlus size={15} /> },
+  { kind: "promptExtract", label: "提示词提取", description: "从图片提炼风格描述", icon: <Sparkles size={15} />, defaultPrompt: "分析商品外观、材质、拍摄角度和视觉风格" },
+  { kind: "imageToImage", label: "图生图节点", description: "基于输入图重绘", icon: <Brush size={15} />, defaultPrompt: "保留商品主体，替换为高级商业摄影背景", defaultPresetId: "scene" },
+  { kind: "textToImage", label: "文生图节点", description: "提示词生成视觉稿", icon: <Palette size={15} />, defaultPrompt: "电商广告图，浅色背景，精致构图", defaultPresetId: "promotion-poster" },
+  { kind: "video", label: "视频节点", description: "图生视频任务", icon: <Video size={15} />, defaultPrompt: "镜头缓慢推进，商品细节高光流动" },
+  { kind: "export", label: "导出节点", description: "保存全部结果", icon: <Download size={15} /> },
+  { kind: "note", label: "备注节点", description: "流程说明与灵感", icon: <PenLine size={15} />, defaultPrompt: "记录这一组节点的目的" }
+];
 
 function CanvasGrid(props: { width: number; height: number }) {
   const lines: JSX.Element[] = [];
@@ -6792,15 +9227,26 @@ function CanvasNodeView(props: {
       const target = event.target;
       const scaleX = target.scaleX();
       const scaleY = target.scaleY();
+      const proportionalScale = Math.max(Math.abs(scaleX), Math.abs(scaleY));
       target.scaleX(1);
       target.scaleY(1);
-      props.onChange({
+      const nextPatch: Partial<CanvasNode> = {
         x: target.x(),
         y: target.y(),
-        width: Math.max(12, props.node.width * scaleX),
-        height: Math.max(12, props.node.height * scaleY),
         rotation: target.rotation()
-      } as Partial<CanvasNode>);
+      };
+      if (props.node.type === "shape" && (props.node.shapeType === "line" || props.node.shapeType === "arrow")) {
+        nextPatch.width = props.node.width === 0 ? 0 : Math.max(12, Math.abs(props.node.width * scaleX));
+        nextPatch.height = props.node.height === 0 ? 0 : Math.max(12, Math.abs(props.node.height * scaleY));
+      } else if (props.node.type === "shape" && props.node.shapeType === "circle") {
+        const size = Math.max(12, Math.max(props.node.width, props.node.height) * proportionalScale);
+        nextPatch.width = size;
+        nextPatch.height = size;
+      } else {
+        nextPatch.width = Math.max(12, props.node.width * proportionalScale);
+        nextPatch.height = Math.max(12, props.node.height * proportionalScale);
+      }
+      props.onChange(nextPatch);
       props.onDragEnd();
     }
   };
@@ -6942,13 +9388,54 @@ function CanvasNodeView(props: {
     if (props.node.shapeType === "arrow") {
       return <KonvaArrow {...common} points={[0, 0, props.node.width, props.node.height]} stroke={props.node.stroke} fill={props.node.stroke} strokeWidth={props.node.strokeWidth} pointerLength={22} pointerWidth={22} />;
     }
+    if (props.node.shapeType === "circle") {
+      const radius = Math.max(1, Math.max(props.node.width, props.node.height) / 2);
+      return (
+        <Group {...common}>
+          <KonvaCircle
+            x={radius}
+            y={radius}
+            radius={radius}
+            fill={props.node.fill}
+            stroke={props.node.stroke}
+            strokeWidth={props.node.strokeWidth}
+          />
+        </Group>
+      );
+    }
+    if (props.node.shapeType === "triangle") {
+      return (
+        <Line
+          {...common}
+          points={[props.node.width / 2, 0, props.node.width, props.node.height, 0, props.node.height]}
+          closed
+          fill={props.node.fill}
+          stroke={props.node.stroke}
+          strokeWidth={props.node.strokeWidth}
+          lineJoin="round"
+        />
+      );
+    }
+    if (props.node.shapeType === "diamond") {
+      return (
+        <Line
+          {...common}
+          points={[props.node.width / 2, 0, props.node.width, props.node.height / 2, props.node.width / 2, props.node.height, 0, props.node.height / 2]}
+          closed
+          fill={props.node.fill}
+          stroke={props.node.stroke}
+          strokeWidth={props.node.strokeWidth}
+          lineJoin="round"
+        />
+      );
+    }
     return (
       <Rect
         {...common}
         fill={props.node.fill}
         stroke={props.node.stroke}
         strokeWidth={props.node.strokeWidth}
-        cornerRadius={props.node.shapeType === "circle" ? Math.max(props.node.width, props.node.height) : props.node.cornerRadius}
+        cornerRadius={props.node.cornerRadius}
       />
     );
   }
@@ -7021,9 +9508,15 @@ function CanvasInspector(props: {
   selectedCount: number;
   brushColor: string;
   brushSize: number;
+  showGrid: boolean;
+  snapToGrid: boolean;
+  exportFormat: ExportFormat;
   onProjectChange: (patch: Partial<Pick<CanvasProject, "title" | "width" | "height" | "background">>) => void;
   onBrushColorChange: (value: string) => void;
   onBrushSizeChange: (value: number) => void;
+  onShowGridChange: (value: boolean) => void;
+  onSnapToGridChange: (value: boolean) => void;
+  onExportFormatChange: (value: ExportFormat) => void;
   onNodeCommit: (patch: Partial<CanvasNode>) => void;
   onDelete: () => void;
   onCopy: () => void;
@@ -7057,6 +9550,28 @@ function CanvasInspector(props: {
           画笔粗细
           <input type="number" min={1} max={80} value={props.brushSize} onChange={(event) => props.onBrushSizeChange(Number(event.target.value))} />
         </label>
+        <label>
+          导出格式
+          <select value={props.exportFormat} onChange={(event) => props.onExportFormatChange(event.target.value as ExportFormat)}>
+            {canvasExportFormats.map((format) => (
+              <option key={format} value={format}>
+                {format.toUpperCase()}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className="canvas-action-grid compact">
+        <button className={props.showGrid ? "active" : ""} onClick={() => props.onShowGridChange(!props.showGrid)}>
+          网格
+        </button>
+        <button className={props.snapToGrid ? "active" : ""} onClick={() => props.onSnapToGridChange(!props.snapToGrid)}>
+          吸附
+        </button>
+        <button onClick={() => props.onProjectChange({ width: defaultCanvasSize.width, height: defaultCanvasSize.height })}>
+          默认尺寸
+        </button>
       </div>
 
       <div className="canvas-action-grid">
@@ -7083,6 +9598,14 @@ function CanvasInspector(props: {
         <button onClick={() => props.onLayerMove("back")} disabled={props.selectedCount === 0}>
           <ChevronDown size={14} />
           置底
+        </button>
+        <button onClick={() => props.onLayerMove("forward")} disabled={props.selectedCount === 0}>
+          <ChevronUp size={14} />
+          上移一层
+        </button>
+        <button onClick={() => props.onLayerMove("backward")} disabled={props.selectedCount === 0}>
+          <ChevronDown size={14} />
+          下移一层
         </button>
         <button className="danger" onClick={props.onDelete} disabled={props.selectedCount === 0}>
           <Trash2 size={14} />
@@ -7338,17 +9861,74 @@ function useCanvasImage(src?: string) {
   return image;
 }
 
-function createDraftCanvasProject(): CanvasDraftProject {
+function createDraftCanvasProject(canvasKind: CanvasKind = "personal"): CanvasDraftProject {
   const now = new Date().toISOString();
   return {
     id: `draft-${createCanvasId()}`,
     userId: "",
+    canvasKind,
     title: "未命名自由画布",
     width: defaultCanvasSize.width,
     height: defaultCanvasSize.height,
     background: defaultCanvasBackground,
     nodes: [],
     viewport: { zoom: 0.55, panX: 160, panY: 60 },
+    gridEnabled: true,
+    snapEnabled: true,
+    selectedNodeIds: [],
+    createdAt: now,
+    updatedAt: now,
+    draft: true
+  };
+}
+
+function createInfiniteDraftCanvasProject(): CanvasDraftProject {
+  const now = new Date().toISOString();
+  const uploadNodeId = createCanvasId();
+  const exportNodeId = createCanvasId();
+  return {
+    id: `draft-${createCanvasId()}`,
+    userId: "",
+    canvasKind: "infinite",
+    title: "未命名无限画布",
+    width: infiniteCanvasSize.width,
+    height: infiniteCanvasSize.height,
+    background: "#fffaf3",
+    nodes: [],
+    workflowNodes: [
+      {
+        id: uploadNodeId,
+        kind: "upload",
+        title: "上传原图",
+        x: 1680,
+        y: 1320,
+        width: 180,
+        height: 180,
+        status: "idle"
+      },
+      {
+        id: exportNodeId,
+        kind: "export",
+        title: "导出",
+        x: 2040,
+        y: 1318,
+        width: 170,
+        height: 170,
+        status: "ready"
+      }
+    ],
+    workflowEdges: [
+      {
+        id: createCanvasId(),
+        fromNodeId: uploadNodeId,
+        fromPort: "out",
+        toNodeId: exportNodeId,
+        toPort: "in",
+        dataType: "bundle"
+      }
+    ],
+    workflowQueue: [],
+    viewport: { zoom: 1, panX: 0, panY: 0 },
     gridEnabled: true,
     snapEnabled: true,
     selectedNodeIds: [],
@@ -7371,6 +9951,28 @@ function createCanvasId() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function getCanvasShapeLabel(shapeType: CanvasShapeNode["shapeType"]) {
+  const labels: Record<CanvasShapeNode["shapeType"], string> = {
+    rect: "矩形",
+    circle: "圆形",
+    line: "线条",
+    arrow: "箭头",
+    triangle: "三角形",
+    diamond: "菱形"
+  };
+  return labels[shapeType];
+}
+
+function isOpenCanvasShape(shapeType: CanvasShapeNode["shapeType"]) {
+  return shapeType === "line" || shapeType === "arrow";
+}
+
+function getCanvasShapeCornerRadius(shapeType: CanvasShapeNode["shapeType"]) {
+  if (shapeType === "rect") return 18;
+  if (shapeType === "circle") return 999;
+  return 0;
+}
+
 function getCanvasPoint(stage: Konva.Stage, pan: { x: number; y: number }, zoom: number) {
   const pointer = stage.getPointerPosition();
   if (!pointer) return null;
@@ -7380,12 +9982,56 @@ function getCanvasPoint(stage: Konva.Stage, pan: { x: number; y: number }, zoom:
   };
 }
 
-function normalizeCanvasNode(node: CanvasNode, snapToGrid: boolean): CanvasNode {
-  if (!snapToGrid) return node;
+function getCanvasShapeGeometry(
+  shapeType: CanvasShapeNode["shapeType"],
+  start: CanvasPoint,
+  end: CanvasPoint,
+  finalize = false
+) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const isShortClick = finalize && Math.hypot(dx, dy) < 8;
+  if (shapeType === "line" || shapeType === "arrow") {
+    if (isShortClick) {
+      return { x: start.x, y: start.y, width: 260, height: 0 };
+    }
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      return { x: Math.min(start.x, end.x), y: start.y, width: Math.max(1, Math.abs(dx)), height: 0 };
+    }
+    return { x: start.x, y: Math.min(start.y, end.y), width: 0, height: Math.max(1, Math.abs(dy)) };
+  }
+  if (shapeType === "circle") {
+    if (isShortClick) {
+      return { x: start.x, y: start.y, width: 180, height: 180 };
+    }
+    const size = Math.max(finalize ? 12 : 1, Math.max(Math.abs(dx), Math.abs(dy)));
+    return {
+      x: dx < 0 ? start.x - size : start.x,
+      y: dy < 0 ? start.y - size : start.y,
+      width: size,
+      height: size
+    };
+  }
+  if (isShortClick) {
+    return { x: start.x, y: start.y, width: 240, height: 180 };
+  }
   return {
-    ...node,
-    x: Math.round(node.x / 8) * 8,
-    y: Math.round(node.y / 8) * 8
+    x: Math.min(start.x, end.x),
+    y: Math.min(start.y, end.y),
+    width: Math.max(finalize ? 12 : 1, Math.abs(dx)),
+    height: Math.max(finalize ? 12 : 1, Math.abs(dy))
+  };
+}
+
+function normalizeCanvasNode(node: CanvasNode, snapToGrid: boolean): CanvasNode {
+  const normalized = node.type === "shape" && node.shapeType === "circle"
+    ? { ...node, width: Math.max(12, Math.max(node.width, node.height)), height: Math.max(12, Math.max(node.width, node.height)) }
+    : node;
+  if (!snapToGrid) return normalized;
+  return {
+    ...normalized,
+    x: Math.round(normalized.x / 8) * 8,
+    y: Math.round(normalized.y / 8) * 8
   };
 }
 
@@ -7423,6 +10069,54 @@ function normalizeSelectionBox(start: { x: number; y: number }, end: { x: number
 
 function rectanglesIntersect(a: CanvasSelectionBox, b: CanvasSelectionBox) {
   return a.x <= b.x + b.width && a.x + a.width >= b.x && a.y <= b.y + b.height && a.y + a.height >= b.y;
+}
+
+function getFreehandBounds(points: number[], padding: number): CanvasSelectionBox {
+  if (points.length < 2) {
+    return { x: 0, y: 0, width: 1, height: 1 };
+  }
+  const xs = points.filter((_, index) => index % 2 === 0);
+  const ys = points.filter((_, index) => index % 2 === 1);
+  const left = Math.min(...xs) - padding;
+  const top = Math.min(...ys) - padding;
+  const right = Math.max(...xs) + padding;
+  const bottom = Math.max(...ys) + padding;
+  return { x: left, y: top, width: Math.max(1, right - left), height: Math.max(1, bottom - top) };
+}
+
+function splitPolylineByCircle(points: number[], center: CanvasPoint, radius: number) {
+  if (points.length < 4) return [];
+  const segments: number[][] = [];
+  let current: number[] = [];
+  let changed = false;
+  for (let index = 0; index < points.length; index += 2) {
+    const point = { x: points[index], y: points[index + 1] };
+    const previous = index >= 2 ? { x: points[index - 2], y: points[index - 1] } : null;
+    const pointHit = Math.hypot(point.x - center.x, point.y - center.y) <= radius;
+    const segmentHit = previous ? pointToSegmentDistance(center, previous, point) <= radius : false;
+    if (pointHit || segmentHit) {
+      changed = true;
+      if (current.length >= 4) {
+        segments.push(current);
+      }
+      current = [];
+      continue;
+    }
+    current.push(point.x, point.y);
+  }
+  if (current.length >= 4) {
+    segments.push(current);
+  }
+  return changed ? segments : [points];
+}
+
+function pointToSegmentDistance(point: { x: number; y: number }, start: { x: number; y: number }, end: { x: number; y: number }) {
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared === 0) return Math.hypot(point.x - start.x, point.y - start.y);
+  const t = clamp(((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared, 0, 1);
+  return Math.hypot(point.x - (start.x + t * dx), point.y - (start.y + t * dy));
 }
 
 function getCanvasNodeIdFromKonvaNode(node: Konva.Node) {
@@ -7477,6 +10171,11 @@ function reorderCanvasNodes(
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function snapToDevicePixel(value: number) {
+  const ratio = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
+  return Math.round(value * ratio) / ratio;
 }
 
 function isCanvasTypingTarget(target: EventTarget | null) {
@@ -7605,8 +10304,6 @@ function PersonalCenterPage(props: {
             />
           ) : props.activeTab === "recharge" ? (
             <RechargeDialog
-              providerId={props.providerId}
-              modelId={props.modelId}
               embedded
               hideClose
               onClose={() => props.onTabChange("overview")}
@@ -7821,24 +10518,32 @@ function getTransactionTypeLabel(transaction: WalletTransaction): string {
   return uiText.adjustmentTransaction;
 }
 
+type RechargeCheckoutPlan = (typeof rechargePackages)[number] | (typeof monthlyCardPlans)[number];
+type PriceMediaTab = "image" | "video";
+
 function RechargeDialog(props: {
-  providerId: ProviderId;
-  modelId: string;
   embedded?: boolean;
   hideClose?: boolean;
   onClose: () => void;
   onRecharged: (wallet: WalletSummary) => void;
 }) {
-  const [providerId, setProviderId] = useState<ProviderId>(props.providerId);
-  const [modelId, setModelId] = useState(props.modelId);
-  const [amountCents, setAmountCents] = useState(rechargeAmounts[1]);
+  const [checkoutPlan, setCheckoutPlan] = useState<RechargeCheckoutPlan | null>(null);
   const [message, setMessage] = useState("");
-  const provider = providerConfigs[providerId];
-  const modelOptions = provider.models;
 
   async function confirmRecharge() {
+    if (!checkoutPlan) return;
+    const selectedIsMonthly = monthlyCardPlans.some((plan) => plan.id === checkoutPlan.id);
+    const planNote = selectedIsMonthly
+      ? `月卡服务：${checkoutPlan.label}，到账 ${formatUsdCents(checkoutPlan.points)}，有效期 30 天`
+      : `积分充值：${formatYuan(checkoutPlan.yuanAmount)}，到账 ${formatUsdCents(checkoutPlan.points)}`;
     try {
-      const receipt = await window.productStudio.recharge({ providerId, modelId, amountCents });
+      const receipt = await window.productStudio.recharge({
+        amountCents: checkoutPlan.points,
+        planId: checkoutPlan.id,
+        planName: checkoutPlan.label,
+        rechargeKind: selectedIsMonthly ? "monthly" : "points",
+        note: planNote
+      });
       props.onRecharged(receipt.wallet);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : uiText.generationFailed);
@@ -7848,7 +10553,10 @@ function RechargeDialog(props: {
   const content = (
       <div className={`recharge-dialog ${props.embedded ? "embedded-panel" : ""}`}>
         <header>
-          <h2>{uiText.rechargeTitle}</h2>
+          <div>
+            <h2>{uiText.rechargeTitle}</h2>
+            <p>积分全模型通用，{formatYuan(1)} = {creditRatePerYuan} 积分；图片按张扣费，视频按实际秒数扣费。</p>
+          </div>
           {props.hideClose ? null : (
             <button className="icon-button" onClick={props.onClose} title={uiText.close}>
               <X size={16} />
@@ -7857,54 +10565,71 @@ function RechargeDialog(props: {
         </header>
         <div className="recharge-grid">
           <section className="recharge-controls">
-            <label>
-              <span>{uiText.rechargeModel}</span>
-              <select
-                value={providerId}
-                onChange={(event) => {
-                  const nextProvider = event.target.value as ProviderId;
-                  setProviderId(nextProvider);
-                  setModelId(providerConfigs[nextProvider].defaultModel);
-                }}
-              >
-                {providerOrder.map((id) => (
-                  <option key={id} value={id}>
-                    {providerConfigs[id].displayName}
-                  </option>
+            <section className="recharge-package-section">
+              <div className="section-title">
+                <span>按量充值</span>
+                <small>点击套餐后展示收款码。</small>
+              </div>
+              <div className="amount-grid recharge-package-grid">
+                {rechargePackages.map((plan) => (
+                  <button
+                    key={plan.id}
+                    onClick={() => {
+                      setMessage("");
+                      setCheckoutPlan(plan);
+                    }}
+                  >
+                    <strong>{formatYuan(plan.yuanAmount)}</strong>
+                    <span>{formatUsdCents(plan.points)}</span>
+                  </button>
                 ))}
-              </select>
-            </label>
-            <select value={modelId} onChange={(event) => setModelId(event.target.value)}>
-              {modelOptions.map((item) => (
-                <option key={item} value={item}>
-                  {item}
-                </option>
-              ))}
-            </select>
-            <div className="amount-grid">
-              {rechargeAmounts.map((amount) => (
-                <button
-                  key={amount}
-                  className={amountCents === amount ? "active" : ""}
-                  onClick={() => setAmountCents(amount)}
-                >
-                  {formatUsdCents(amount)}
-                </button>
-              ))}
-            </div>
+              </div>
+            </section>
+            <section className="recharge-package-section">
+              <div className="section-title">
+                <span>月卡服务</span>
+                <small>手动购买，每月固定积分，购买后立即到账。</small>
+              </div>
+              <div className="amount-grid recharge-package-grid monthly-card-grid">
+                {monthlyCardPlans.map((plan) => (
+                  <button
+                    key={plan.id}
+                    onClick={() => {
+                      setMessage("");
+                      setCheckoutPlan(plan);
+                    }}
+                  >
+                    <strong>{plan.label}</strong>
+                    <span>{formatYuan(plan.yuanAmount)} / {formatUsdCents(plan.points)}</span>
+                    <small>{plan.validDays} 天有效</small>
+                  </button>
+                ))}
+              </div>
+            </section>
             <PriceTable compact />
           </section>
-          <section className="qr-panel">
-            <WeChatQr amountCents={amountCents} providerId={providerId} modelId={modelId} />
-            <strong>{formatUsdCents(amountCents)}</strong>
-            <p>{uiText.rechargeLocalNote}</p>
-            <button className="primary-button" onClick={() => void confirmRecharge()}>
-              <QrCode size={18} />
-              {uiText.confirmRecharge}
-            </button>
-            {message ? <div className="auth-message">{message}</div> : null}
-          </section>
         </div>
+        {checkoutPlan ? (
+          <div className="modal-backdrop recharge-qr-backdrop" onClick={() => setCheckoutPlan(null)}>
+            <section className="qr-panel recharge-qr-dialog" onClick={(event) => event.stopPropagation()}>
+              <button className="icon-button recharge-qr-close" onClick={() => setCheckoutPlan(null)} title={uiText.close}>
+                <X size={16} />
+              </button>
+              <WeChatQr seed={`${checkoutPlan.id}-${checkoutPlan.points}-${checkoutPlan.yuanAmount}`} />
+              <div className="recharge-qr-summary">
+                <span>{checkoutPlan.label}</span>
+                <strong>{formatYuan(checkoutPlan.yuanAmount)}</strong>
+                <small>{formatUsdCents(checkoutPlan.points)}</small>
+              </div>
+              <p>{uiText.rechargeLocalNote}</p>
+              <button className="primary-button" onClick={() => void confirmRecharge()}>
+                <QrCode size={18} />
+                {uiText.confirmRecharge} {formatUsdCents(checkoutPlan.points)}
+              </button>
+              {message ? <div className="auth-message">{message}</div> : null}
+            </section>
+          </div>
+        ) : null}
       </div>
   );
 
@@ -7920,29 +10645,56 @@ function RechargeDialog(props: {
 }
 
 function PriceTable({ compact }: { compact: boolean }) {
+  const [activeTab, setActiveTab] = useState<PriceMediaTab>("image");
   return (
     <div className={`price-table ${compact ? "compact" : ""}`}>
       <div className="section-title">
         <span>{uiText.pricing}</span>
+        <div className="price-media-tabs" role="tablist" aria-label={uiText.pricing}>
+          <button className={activeTab === "image" ? "active" : ""} onClick={() => setActiveTab("image")}>
+            图片模型
+          </button>
+          <button className={activeTab === "video" ? "active" : ""} onClick={() => setActiveTab("video")}>
+            视频模型
+          </button>
+        </div>
       </div>
-      <div className="price-rows">
-        {modelPrices.map((price) => (
-          <div key={`${price.providerId}-${price.modelId}`} className="price-row">
-            <div>
-              <strong>{price.displayName}</strong>
-              <span>{providerConfigs[price.providerId].displayName}</span>
-            </div>
-            <div className="price-values">
-              {imageQualities.map((quality) => (
-                <small key={quality.id}>
-                  {qualityLabels[quality.id]} {formatUsdCents(price.qualityPrices[quality.id] ?? 0)}
-                </small>
-              ))}
-            </div>
+      {activeTab === "image" ? (
+        <section className="price-group">
+          <h3>图片模型</h3>
+          <div className="price-rows">
+            {modelPrices.map((price) => (
+              <div key={`${price.providerId}-${price.modelId}`} className="price-row">
+                <div>
+                  <strong>{price.displayName}</strong>
+                  <span>{providerConfigs[price.providerId].displayName}</span>
+                </div>
+                <div className="price-values">
+                  <small>单张 {formatUsdCents(price.pointsPerImage)}</small>
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      {!compact ? <p>{uiText.priceNote}</p> : null}
+        </section>
+      ) : (
+        <section className="price-group">
+          <h3>视频模型</h3>
+          <div className="price-rows">
+            {videoModelPrices.map((price) => (
+              <div key={`${price.providerId}-${price.modelId}`} className="price-row">
+                <div>
+                  <strong>{price.displayName}</strong>
+                  <span>{providerConfigs[price.providerId].displayName}</span>
+                </div>
+                <div className="price-values">
+                  <small>每秒 {formatUsdCents(price.pointsPerSecond)}</small>
+                  <small>5 秒 {formatUsdCents(price.pointsPerSecond * 5)}</small>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
@@ -7997,6 +10749,24 @@ function clampWorkspaceLayout(layout: WorkspaceLayoutSize): WorkspaceLayoutSize 
   };
 }
 
+function clampCanvasAutoSaveDelay(delayMs: number): number {
+  return Math.min(300000, Math.max(5000, Math.round(Number(delayMs) || defaultCanvasAutoSaveSettings.delayMs)));
+}
+
+function clampPersonalCanvasPanelWidths(widths: Partial<PersonalCanvasPanelWidths>): PersonalCanvasPanelWidths {
+  return {
+    left: Math.min(460, Math.max(220, Math.round(Number(widths.left) || defaultPersonalCanvasPanelWidths.left))),
+    right: Math.min(460, Math.max(220, Math.round(Number(widths.right) || defaultPersonalCanvasPanelWidths.right)))
+  };
+}
+
+function clampInfiniteCanvasLayout(layout: Partial<InfiniteCanvasLayout>): InfiniteCanvasLayout {
+  return {
+    left: Math.min(420, Math.max(180, Math.round(Number(layout.left) || defaultInfiniteCanvasLayout.left))),
+    right: Math.min(420, Math.max(220, Math.round(Number(layout.right) || defaultInfiniteCanvasLayout.right)))
+  };
+}
+
 function isVideoJob(job: StudioJob): job is VideoGenerationJob {
   return job.mediaType === "video";
 }
@@ -8014,6 +10784,14 @@ function getModelDisplayName(providerId: unknown, modelId: string): string {
 
 function getVideoModelDisplayName(providerId: ProviderId, modelId: string): string {
   return getVideoModelMeta(providerId, modelId)?.displayName ?? modelId;
+}
+
+function getAutoSaveStatusLabel(status: AutoSaveStatus, dirty: boolean): string {
+  if (status === "saving") return "自动保存中";
+  if (status === "failed") return "自动保存失败";
+  if (dirty) return "有未保存更改";
+  if (status === "saved") return "已自动保存";
+  return "自动保存开启";
 }
 
 function getProviderDisplayName(providerId: unknown): string {
@@ -8046,12 +10824,11 @@ function isProviderId(value: unknown): value is ProviderId {
   return typeof value === "string" && value in providerConfigs;
 }
 
-function WeChatQr(props: { amountCents: number; providerId: ProviderId; modelId: string }) {
-  const seed = `${props.providerId}-${props.modelId}-${props.amountCents}`;
+function WeChatQr(props: { seed: string }) {
   return (
     <div className="wechat-qr" aria-label="WeChat QR">
       {Array.from({ length: 81 }).map((_, index) => {
-        const active = (seed.charCodeAt(index % seed.length) + index * 7) % 5 < 2;
+        const active = (props.seed.charCodeAt(index % props.seed.length) + index * 7) % 5 < 2;
         return <span key={index} className={active ? "active" : ""} />;
       })}
       <QrCode size={32} />
@@ -8154,17 +10931,116 @@ function ApiKeysDialog(props: {
   );
 }
 
+function FeedbackDialog(props: {
+  onClose: () => void;
+  onSubmit: (request: FeedbackSubmitRequest) => Promise<void>;
+}) {
+  const [message, setMessage] = useState("");
+  const [contact, setContact] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const trimmedMessage = message.trim();
+  const trimmedContact = contact.trim();
+  const messageTooLong = message.length > 2000;
+  const contactTooLong = contact.length > 120;
+  const canSubmit = Boolean(trimmedMessage) && !messageTooLong && !contactTooLong && !busy;
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!trimmedMessage) {
+      setError("请填写反馈内容。");
+      return;
+    }
+    if (messageTooLong) {
+      setError("反馈内容不能超过 2000 字。");
+      return;
+    }
+    if (contactTooLong) {
+      setError("联系方式不能超过 120 字。");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await props.onSubmit({
+        message: trimmedMessage,
+        contact: trimmedContact || undefined
+      });
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "反馈发送失败，请稍后再试。");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop">
+      <section className="feedback-dialog" role="dialog" aria-modal="true" aria-label="意见反馈">
+        <header>
+          <div>
+            <h2>意见反馈</h2>
+            <p>告诉我们遇到的问题或希望改进的地方。</p>
+          </div>
+          <button className="icon-button" onClick={props.onClose} disabled={busy} title={uiText.close} aria-label={uiText.close}>
+            <X size={16} />
+          </button>
+        </header>
+        <form onSubmit={submit}>
+          <label className="feedback-field">
+            <span>反馈内容</span>
+            <textarea
+              value={message}
+              maxLength={2000}
+              placeholder="请输入你的意见、问题或建议"
+              autoFocus
+              onChange={(event) => setMessage(event.target.value)}
+            />
+          </label>
+          <div className={`feedback-counter ${messageTooLong ? "is-error" : ""}`}>{message.length}/2000</div>
+          <label className="feedback-field">
+            <span>联系方式（选填）</span>
+            <input
+              type="text"
+              value={contact}
+              maxLength={120}
+              placeholder="邮箱、微信或手机号"
+              onChange={(event) => setContact(event.target.value)}
+            />
+          </label>
+          {error ? <div className="auth-message feedback-message-line">{error}</div> : null}
+          <footer>
+            <button className="secondary-button" type="button" onClick={props.onClose} disabled={busy}>
+              取消
+            </button>
+            <button className="primary-button" type="submit" disabled={!canSubmit}>
+              {busy ? <Loader2 size={16} className="spin" /> : <Send size={16} />}
+              发送反馈
+            </button>
+          </footer>
+        </form>
+      </section>
+    </div>
+  );
+}
+
 function SettingsDialog(props: {
   defaultExportDir: string;
   exportFormat: ExportFormat;
   tencentVodSubAppId: string;
+  canvasAutoSaveEnabled: boolean;
+  canvasAutoSaveDelayMs: number;
   embedded?: boolean;
   onExportFormatChange: (format: ExportFormat) => void;
   onTencentVodSubAppIdChange: (value: string) => void;
+  onCanvasAutoSaveChange: (patch: Partial<CanvasAutoSaveSettings>) => void;
   onClose: () => void;
   onChooseExportFolder: () => void;
   onOpenTutorial: () => void;
+  onOpenFeedback: () => void;
 }) {
+  function copyContactEmail(email: string) {
+    void navigator.clipboard?.writeText(email);
+  }
+
   const content = (
       <div className={`settings-dialog ${props.embedded ? "embedded-panel" : ""}`}>
         <header>
@@ -8210,6 +11086,32 @@ function SettingsDialog(props: {
               onChange={(event) => props.onTencentVodSubAppIdChange(event.target.value)}
             />
           </section>
+          <section className="settings-card settings-autosave-card">
+            <div>
+              <strong>画布自动保存</strong>
+              <span>个人画布和无限画布共用此设置，默认每 30 秒保存一次。</span>
+            </div>
+            <label className="settings-toggle">
+              <input
+                type="checkbox"
+                checked={props.canvasAutoSaveEnabled}
+                onChange={(event) => props.onCanvasAutoSaveChange({ enabled: event.target.checked })}
+              />
+              开启
+            </label>
+            <label className="settings-number-field">
+              <span>间隔（秒）</span>
+              <input
+                type="number"
+                min={5}
+                max={300}
+                step={5}
+                value={Math.round(props.canvasAutoSaveDelayMs / 1000)}
+                disabled={!props.canvasAutoSaveEnabled}
+                onChange={(event) => props.onCanvasAutoSaveChange({ delayMs: Number(event.target.value) * 1000 })}
+              />
+            </label>
+          </section>
           <section className="settings-card">
             <div>
               <strong>{uiText.tutorial}</strong>
@@ -8219,6 +11121,27 @@ function SettingsDialog(props: {
               <HelpCircle size={16} />
               {uiText.openTutorial}
             </button>
+          </section>
+          <section className="settings-card settings-contact-card">
+            <div>
+              <strong>联系我们</strong>
+              <span>软件使用、问题反馈和合作沟通可通过以下邮箱联系。</span>
+            </div>
+            <div className="settings-contact-actions">
+              <div className="settings-contact-list" aria-label="联系邮箱">
+                {["2499986960@qq.com", "1065152806@qq.com"].map((email) => (
+                  <button key={email} type="button" onClick={() => copyContactEmail(email)} title={`复制 ${email}`}>
+                    <Mail size={15} />
+                    <span>{email}</span>
+                    <Copy size={14} />
+                  </button>
+                ))}
+              </div>
+              <button className="secondary-button settings-feedback-button" type="button" onClick={props.onOpenFeedback}>
+                <MessageSquare size={16} />
+                意见反馈
+              </button>
+            </div>
           </section>
         </div>
       </div>

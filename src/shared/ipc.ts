@@ -11,6 +11,7 @@ export const ipcChannels = {
   authGetRemembered: "auth:get-remembered",
   authResumeRemembered: "auth:resume-remembered",
   authLogout: "auth:logout",
+  feedbackSubmit: "feedback:submit",
   billingGetWallet: "billing:get-wallet",
   billingRecharge: "billing:recharge",
   billingListTransactions: "billing:list-transactions",

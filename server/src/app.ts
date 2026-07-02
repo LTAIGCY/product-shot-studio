@@ -1,5 +1,5 @@
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
-import { Prisma, type PrismaClient, type User, type Wallet, type WalletTransaction } from "@prisma/client";
+import { Prisma, type PrismaClient, type User, type UserFeedback, type Wallet, type WalletTransaction } from "@prisma/client";
 import { renderAdminHtml } from "./adminHtml";
 import {
   assertPassword,
@@ -21,6 +21,7 @@ import type {
   AuthBody,
   CancelBody,
   CommitBody,
+  FeedbackBody,
   RechargeBody,
   ReserveBody
 } from "./types";
@@ -39,6 +40,10 @@ interface UserContext {
 }
 
 const ONLINE_WINDOW_MS = 90_000;
+const FEEDBACK_MESSAGE_MAX_LENGTH = 2000;
+const FEEDBACK_CONTACT_MAX_LENGTH = 120;
+const FEEDBACK_VERSION_MAX_LENGTH = 80;
+const FEEDBACK_USER_AGENT_MAX_LENGTH = 240;
 
 export function createApp(options: CreateAppOptions): FastifyInstance {
   const prisma = options.prisma;
@@ -198,6 +203,41 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
     return { ok: true };
   });
 
+  app.post("/api/feedback", async (request) => {
+    const user = await requireUser(prisma, request, tokenSecret);
+    const body = request.body as FeedbackBody;
+    const message = normalizeRequiredText(body.message, FEEDBACK_MESSAGE_MAX_LENGTH, "请填写反馈内容。", "反馈内容不能超过 2000 字。");
+    const contact = normalizeOptionalText(body.contact, FEEDBACK_CONTACT_MAX_LENGTH, "联系方式不能超过 120 字。");
+    const appVersion = normalizeOptionalText(body.appVersion, FEEDBACK_VERSION_MAX_LENGTH, "客户端版本不能超过 80 字。");
+    const userAgent = normalizeOptionalText(
+      body.userAgent ?? getHeaderValue(request.headers["user-agent"]),
+      FEEDBACK_USER_AGENT_MAX_LENGTH,
+      "客户端信息不能超过 240 字。"
+    );
+    const feedback = await prisma.$transaction(async (tx) => {
+      const created = await tx.userFeedback.create({
+        data: {
+          userId: user.userId,
+          message,
+          contact,
+          appVersion,
+          userAgent,
+          ip: request.ip
+        }
+      });
+      await tx.auditEvent.create({
+        data: {
+          userId: user.userId,
+          action: "user.feedback_submit",
+          ip: request.ip,
+          metadataJson: JSON.stringify({ feedbackId: created.id })
+        }
+      });
+      return created;
+    });
+    return { ok: true, feedback: mapFeedback(feedback) };
+  });
+
   app.get("/api/wallet", async (request) => {
     const user = await requireUser(prisma, request, tokenSecret);
     const wallet = await getOrCreateWallet(prisma, user.userId);
@@ -222,6 +262,14 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
     if (amountPoints < 100 || amountPoints > 1000000) {
       throw httpError(400, "充值积分需要在 100 到 1000000 之间。");
     }
+    const rechargeNote =
+      typeof body.note === "string" && body.note.trim()
+        ? body.note.trim()
+        : typeof body.planName === "string" && body.planName.trim()
+          ? body.rechargeKind === "monthly"
+            ? `月卡服务：${body.planName.trim()}`
+            : `积分充值：${body.planName.trim()}`
+          : "本地模拟充值入账。";
     const result = await prisma.$transaction(async (tx) => {
       const wallet = await ensureWallet(tx, user.userId);
       const updatedWallet = await tx.wallet.update({
@@ -239,7 +287,7 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
           balanceAfterPoints: wallet.balancePoints + amountPoints,
           providerId: body.providerId,
           modelId: body.modelId,
-          note: "本地模拟充值入账。"
+          note: rechargeNote
         }
       });
       await tx.auditEvent.create({
@@ -247,7 +295,14 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
           userId: user.userId,
           action: "wallet.recharge_simulated",
           ip: request.ip,
-          metadataJson: JSON.stringify({ amountPoints, providerId: body.providerId, modelId: body.modelId })
+          metadataJson: JSON.stringify({
+            amountPoints,
+            providerId: body.providerId,
+            modelId: body.modelId,
+            planId: body.planId,
+            planName: body.planName,
+            rechargeKind: body.rechargeKind
+          })
         }
       });
       return { wallet: updatedWallet, transaction };
@@ -600,6 +655,17 @@ export function createApp(options: CreateAppOptions): FastifyInstance {
     return { items: items.map(mapAuditEventWithUser) };
   });
 
+  app.get("/admin/feedback", async (request) => {
+    requireAdmin(request, tokenSecret);
+    const limit = clampLimit((request.query as { limit?: string | number }).limit, 20);
+    const items = await prisma.userFeedback.findMany({
+      include: { user: { select: { accountId: true, username: true } } },
+      orderBy: { createdAt: "desc" },
+      take: limit
+    });
+    return { items: items.map(mapFeedbackWithUser) };
+  });
+
   app.post<{ Params: { id: string } }>("/admin/users/:id/adjust-points", async (request) => {
     requireAdmin(request, tokenSecret);
     const body = request.body as AdminAdjustBody;
@@ -880,6 +946,27 @@ function mapAuditEventWithUser(event: {
   };
 }
 
+function mapFeedback(feedback: UserFeedback) {
+  return {
+    id: feedback.id,
+    userId: feedback.userId,
+    message: feedback.message,
+    contact: feedback.contact ?? undefined,
+    appVersion: feedback.appVersion ?? undefined,
+    userAgent: feedback.userAgent ?? undefined,
+    ip: feedback.ip ?? undefined,
+    createdAt: feedback.createdAt.toISOString()
+  };
+}
+
+function mapFeedbackWithUser(feedback: UserFeedback & { user?: { accountId: string; username: string } | null }) {
+  return {
+    ...mapFeedback(feedback),
+    accountId: feedback.user?.accountId,
+    username: feedback.user?.username
+  };
+}
+
 function safeParseMetadata(value: string | null): unknown {
   if (!value) return null;
   try {
@@ -898,6 +985,25 @@ function emptyWallet(userId: string): Wallet {
     totalUsedPoints: 0,
     updatedAt: new Date()
   };
+}
+
+function normalizeRequiredText(value: unknown, maxLength: number, emptyMessage: string, lengthMessage: string): string {
+  const text = String(value ?? "").trim();
+  if (!text) throw httpError(400, emptyMessage);
+  if (text.length > maxLength) throw httpError(400, lengthMessage);
+  return text;
+}
+
+function normalizeOptionalText(value: unknown, maxLength: number, lengthMessage: string): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  const text = String(value).trim();
+  if (!text) return undefined;
+  if (text.length > maxLength) throw httpError(400, lengthMessage);
+  return text;
+}
+
+function getHeaderValue(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
 }
 
 function normalizePositiveInt(value: unknown, message: string): number {

@@ -77,13 +77,70 @@ export interface AddPersonalGalleryItemRequest {
 }
 
 export type CanvasNodeType = "image" | "text" | "shape" | "draw" | "note" | "connector" | "freehand" | "aiTask" | "aiResult";
-export type CanvasShapeType = "rect" | "circle" | "line" | "arrow";
+export type CanvasShapeType = "rect" | "circle" | "line" | "arrow" | "triangle" | "diamond";
 export type CanvasAiTaskStatus = "draft" | "ready" | "running" | "done" | "failed";
+export type CanvasKind = "personal" | "infinite";
+export type InfiniteCanvasNodeKind =
+  | "upload"
+  | "prompt"
+  | "promptExtract"
+  | "productShot"
+  | "imageToImage"
+  | "textToImage"
+  | "video"
+  | "detailPage"
+  | "export"
+  | "note"
+  | "result";
+export type InfiniteCanvasPortType = "image" | "text" | "prompt" | "video" | "bundle";
+export type InfiniteCanvasNodeStatus = "idle" | "ready" | "running" | "done" | "failed";
 
 export interface CanvasViewport {
   zoom: number;
   panX: number;
   panY: number;
+}
+
+export interface InfiniteCanvasWorkflowNode {
+  id: string;
+  kind: InfiniteCanvasNodeKind;
+  title: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  status: InfiniteCanvasNodeStatus;
+  sourcePath?: string;
+  resultPath?: string;
+  jobId?: string;
+  prompt?: string;
+  negativePrompt?: string;
+  providerId?: ProviderId;
+  modelId?: string;
+  presetId?: PresetId;
+  aspectRatio?: AspectRatio;
+  outputCount?: number;
+  exportFormat?: ExportFormat;
+  note?: string;
+  manualPromptEdited?: boolean;
+  error?: string;
+}
+
+export interface InfiniteCanvasWorkflowEdge {
+  id: string;
+  fromNodeId: string;
+  fromPort: string;
+  toNodeId: string;
+  toPort: string;
+  dataType: InfiniteCanvasPortType;
+}
+
+export interface InfiniteCanvasQueueItem {
+  id: string;
+  nodeId: string;
+  title: string;
+  status: InfiniteCanvasNodeStatus;
+  detail?: string;
 }
 
 export interface CanvasNodeBase {
@@ -196,11 +253,15 @@ export type CanvasNode =
 export interface CanvasProject {
   id: string;
   userId: string;
+  canvasKind: CanvasKind;
   title: string;
   width: number;
   height: number;
   background: string;
   nodes: CanvasNode[];
+  workflowNodes?: InfiniteCanvasWorkflowNode[];
+  workflowEdges?: InfiniteCanvasWorkflowEdge[];
+  workflowQueue?: InfiniteCanvasQueueItem[];
   viewport?: CanvasViewport;
   gridEnabled?: boolean;
   snapEnabled?: boolean;
@@ -213,6 +274,7 @@ export interface CanvasProject {
 export interface CanvasProjectSummary {
   id: string;
   userId: string;
+  canvasKind: CanvasKind;
   title: string;
   width: number;
   height: number;
@@ -223,11 +285,15 @@ export interface CanvasProjectSummary {
 
 export interface CanvasSaveRequest {
   id?: string;
+  canvasKind?: CanvasKind;
   title: string;
   width: number;
   height: number;
   background: string;
   nodes: CanvasNode[];
+  workflowNodes?: InfiniteCanvasWorkflowNode[];
+  workflowEdges?: InfiniteCanvasWorkflowEdge[];
+  workflowQueue?: InfiniteCanvasQueueItem[];
   viewport?: CanvasViewport;
   gridEnabled?: boolean;
   snapEnabled?: boolean;
@@ -392,6 +458,16 @@ export interface AuthSavedCredentialsInput {
   rememberPassword: boolean;
 }
 
+export interface FeedbackSubmitRequest {
+  message: string;
+  contact?: string;
+}
+
+export interface FeedbackSubmitReceipt {
+  id: string;
+  createdAt: string;
+}
+
 export interface WalletSummary {
   userId: string;
   balanceCents: number;
@@ -456,9 +532,13 @@ export interface VideoGenerationJob {
 export type StudioJob = ProductShotJob | VideoGenerationJob;
 
 export interface RechargeRequest {
-  providerId: ProviderId;
-  modelId: string;
   amountCents: number;
+  providerId?: ProviderId;
+  modelId?: string;
+  planId?: string;
+  planName?: string;
+  rechargeKind?: "points" | "monthly";
+  note?: string;
 }
 
 export interface RechargeReceipt {

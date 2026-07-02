@@ -9,6 +9,10 @@ export interface RechargeBody {
   modelId?: string;
   amountPoints?: number;
   amountCents?: number;
+  planId?: string;
+  planName?: string;
+  rechargeKind?: "points" | "monthly";
+  note?: string;
 }
 
 export interface ReserveBody {
@@ -37,6 +41,13 @@ export interface CancelBody {
   reservationId?: string;
   jobId?: string;
   errorMessage?: string;
+}
+
+export interface FeedbackBody {
+  message?: string;
+  contact?: string;
+  appVersion?: string;
+  userAgent?: string;
 }
 
 export interface AdminAdjustBody {
